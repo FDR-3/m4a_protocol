@@ -317,7 +317,7 @@ describe("M4A_Protocol", () => {
     }
   })
 
-  it("Submits and Max in progress claims", async () => 
+  it("Submits and Max denies in progress claims", async () => 
     {
       //Submit 100 Claims
       for(var i=1; i<=1; i++)
