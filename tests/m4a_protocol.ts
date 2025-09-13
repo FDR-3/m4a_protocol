@@ -12,7 +12,6 @@ describe("M4A_Protocol", () => {
   anchor.setProvider(anchor.AnchorProvider.env())
 
   const program = anchor.workspace.M4AProtocol as Program<M4AProtocol>
-  const treasurerAddress = new PublicKey("DSLn1ofuSWLbakQWhPUenSBHegwkBBTUwx8ZY4Wfoxm")
   var usdcMint = undefined
   const usdcTokenDecimalAmount = 6
 
