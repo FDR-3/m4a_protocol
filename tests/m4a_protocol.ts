@@ -3,16 +3,23 @@ import { Program } from "@coral-xyz/anchor"
 import { M4AProtocol } from "../target/types/m_4_a_protocol"
 import { utf8 } from "@coral-xyz/anchor/dist/cjs/utils/bytes"
 import { assert } from "chai"
+import { PublicKey, Keypair, Transaction } from "@solana/web3.js"
+import * as fs from 'fs'
+import { Token, ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@solana/spl-token"
 
 describe("M4A_Protocol", () => {
   // Configure the client to use the local cluster.
   anchor.setProvider(anchor.AnchorProvider.env())
 
   const program = anchor.workspace.M4AProtocol as Program<M4AProtocol>
+  const treasurerAddress = new PublicKey("DSLn1ofuSWLbakQWhPUenSBHegwkBBTUwx8ZY4Wfoxm")
+  var usdcMint = undefined
+  const usdcTokenDecimalAmount = 6
 
   //default signing wallet string
   //program.provider.publicKey.toBase58()
 
+  const submitterPatientIndex = 0
   const patientFirstName = "Lorem ipsum dolor sit amet, consectetuer adipiscing."
   const patientLastName = "Lorem ipsum dolor sit amet, consectetuer adipiscing."
   const patientIndex = 0
@@ -36,9 +43,31 @@ describe("M4A_Protocol", () => {
 
   let firstCustomerWallet = anchor.web3.Keypair.generate()
 
-  it("Initializes M4A Protocol CEO Account", async () => 
+  //Load the keypair from config file
+  const keypairPath = '/home/fdr1/.config/solana/id.json';
+  const keypairData = JSON.parse(fs.readFileSync(keypairPath, 'utf8'));
+  const testingWalletKeypair = Keypair.fromSecretKey(Uint8Array.from(keypairData))
+
+  it("Creates And Mints USDC For Fees", async () => 
   {
-    await program.methods.initializeM4AProtocolCeoAccount().rpc()
+    //Create a new USDC Mint for testing
+    usdcMint = await Token.createMint
+    (
+      program.provider.connection,
+      testingWalletKeypair, //Payer for the mint creation
+      program.provider.publicKey, // Mint authority (who can mint tokens)
+      null, //Freeze authority (optional)
+      6, //Decimals for USDC
+      TOKEN_PROGRAM_ID //SPL Token program ID
+    )
+
+    const walletATA = await deriveWalletATA(program.provider.publicKey, usdcMint.publicKey)
+    await createATAForWallet(testingWalletKeypair, usdcMint.publicKey, walletATA)
+  })
+
+  it("Initializes M4A Protocol Admin Accounts", async () => 
+  {
+    await program.methods.initializeM4AProtocolAdminAccounts().rpc()
 
     var ceoAccount = await program.account.m4AProtocolCeo.fetch(getM4AProtocolCEOAccountPDA())
     assert(ceoAccount.address.toBase58() == program.provider.publicKey.toBase58())
@@ -49,20 +78,11 @@ describe("M4A_Protocol", () => {
     await program.methods.initializeProtocolStats().rpc()
   })
   
-  it("Initializes M4A Protocol And Claim Queue", async () => 
+  it("Initializes M4A Protocol", async () => 
   {
-    let token_airdrop = await program.provider.connection.requestAirdrop(firstCustomerWallet.publicKey, 
-    10 * 1000000000) //1 billion lamports equals 1 SOL
+    await airDropSol(firstCustomerWallet.publicKey)
 
-    const latestBlockHash = await program.provider.connection.getLatestBlockhash()
-    await program.provider.connection.confirmTransaction
-    ({
-      blockhash: latestBlockHash.blockhash,
-      lastValidBlockHeight: latestBlockHash.lastValidBlockHeight,
-      signature: token_airdrop
-    })
-
-    await program.methods.initializeM4AProtocolAndClaimQueue()
+    await program.methods.initializeM4AProtocol()
     .accounts({signer: firstCustomerWallet.publicKey})
     .signers([firstCustomerWallet])
     .rpc()
@@ -85,6 +105,17 @@ describe("M4A_Protocol", () => {
     
     var ceoAccount = await program.account.m4AProtocolCeo.fetch(getM4AProtocolCEOAccountPDA())
     assert(ceoAccount.address.toBase58() == program.provider.publicKey.toBase58())
+  })
+
+  it("Adds a Fee Token Entry Then Removes It", async () => 
+  {
+    await program.methods.addFeeTokenEntry(usdcMint.publicKey, usdcTokenDecimalAmount).rpc()
+    await program.methods.removeFeeTokenEntry(usdcMint.publicKey).rpc()
+  })
+
+  it("Adds a Fee Token Entry", async () => 
+  {
+    await program.methods.addFeeTokenEntry(usdcMint.publicKey, usdcTokenDecimalAmount).rpc()
   })
 
   it("Disables the Claim Que", async () => 
@@ -113,7 +144,7 @@ describe("M4A_Protocol", () => {
 
   it("Creates Patient Account", async () => 
   {
-    await program.methods.createPatientAccount(patientFirstName, patientLastName)
+    await program.methods.createPatientAccount(submitterPatientIndex, patientFirstName, patientLastName)
     .accounts({signer: firstCustomerWallet.publicKey})
     .signers([firstCustomerWallet])
     .rpc()
@@ -167,9 +198,14 @@ describe("M4A_Protocol", () => {
 
   it("Submits A Claim To The Queue", async () => 
   {
+    const walletATA = await deriveWalletATA(firstCustomerWallet.publicKey, usdcMint.publicKey)
+    await createATAForWallet(firstCustomerWallet, usdcMint.publicKey, walletATA)
+    await mintUSDCToWallet(usdcMint.publicKey, walletATA)
+
     await program.methods.submitClaimToQueue
     (
       patientIndex,
+      usdcMint.publicKey,
       countryIndex,
       stateIndex,
       hospitalIndex,
@@ -235,15 +271,15 @@ describe("M4A_Protocol", () => {
 
   it("Approves Claim", async () => 
   {
-    var processorStats = await program.account.processorStats.fetch(getprocessorStatsPDA())
-    console.log("Processed Claim Count: ", processorStats.processedClaimCount)
-    console.log("Approved Claim Count: ", processorStats.approvedClaimCount)
+    var processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
+    console.log("Processed Claim Count: ", processedClaimStats.processedClaimCount.toNumber())
+    console.log("Approved Claim Count: ", processedClaimStats.approvedClaimCount.toNumber())
 
     await program.methods.approveClaim(firstCustomerWallet.publicKey).rpc()
 
-    processorStats = await program.account.processorStats.fetch(getprocessorStatsPDA())
-    console.log("Processed Claim Count: ", processorStats.processedClaimCount)
-    console.log("Approved Claim Count: ", processorStats.approvedClaimCount)
+    processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
+    console.log("Processed Claim Count: ", processedClaimStats.processedClaimCount.toNumber())
+    console.log("Approved Claim Count: ", processedClaimStats.approvedClaimCount.toNumber())
   })
 
   it("Submits and Max denies pending claims", async () => 
@@ -253,16 +289,7 @@ describe("M4A_Protocol", () => {
     {
       //Fund Wallet
       let newWallet = anchor.web3.Keypair.generate()
-      let token_airdrop = await program.provider.connection.requestAirdrop(newWallet.publicKey, 
-        1000 * 10002240)
-
-      const latestBlockHash = await program.provider.connection.getLatestBlockhash()
-      await program.provider.connection.confirmTransaction
-      ({
-        blockhash: latestBlockHash.blockhash,
-        lastValidBlockHeight: latestBlockHash.lastValidBlockHeight,
-        signature: token_airdrop,
-      })
+      await airDropSol(newWallet.publicKey)
 
       //Init Submitter Account
       await program.methods.createSubmitterAccount()
@@ -273,14 +300,19 @@ describe("M4A_Protocol", () => {
       //Init Patient Account
       const patientFirstName = "John"
       const patientLastName = "Doe"
-      await program.methods.createPatientAccount(patientFirstName, patientLastName)
+      await program.methods.createPatientAccount(submitterPatientIndex, patientFirstName, patientLastName)
       .accounts({signer: newWallet.publicKey})
       .signers([newWallet])
       .rpc()
 
+      const walletATA = await deriveWalletATA(newWallet.publicKey, usdcMint.publicKey)
+      await createATAForWallet(newWallet, usdcMint.publicKey, walletATA)
+      await mintUSDCToWallet(usdcMint.publicKey, walletATA)
+
       await program.methods.submitClaimToQueue
       (
         patientIndex,
+        usdcMint.publicKey,
         countryIndex,
         stateIndex,
         hospitalIndex,
@@ -301,19 +333,20 @@ describe("M4A_Protocol", () => {
       .signers([newWallet])
       .rpc()
 
-      var processorStats = await program.account.processorStats.fetch(getprocessorStatsPDA())
+      var processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
+      var claimQueue = await program.account.claimQueue.fetch(getClaimQueuePDA())
       
-      console.log("Processed Claim Count: ", processorStats.processedClaimCount)
-      console.log("MaxDeniedClaim Count: ", processorStats.maxDeniedClaimCount)
+      console.log("Processed Claim Count: ", processedClaimStats.processedClaimCount.toNumber())
+      console.log("MaxDeniedClaim Count: ", claimQueue.maxDeniedClaimCount.toNumber())
 
       await program.methods.maxDenyPendingClaim(newWallet.publicKey).rpc()
-      var processorStats = await program.account.processorStats.fetch(getprocessorStatsPDA())
+      var processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
 
       //const derp = await program.account.processedClaim.all()
       //console.log("PDA Actual: ", derp[i-1])
       //console.log("PDA Helper: ", getProcessedClaimPDA(i-1))
 
-      console.log("MaxDeniedClaim Count: ", processorStats.maxDeniedClaimCount)
+      console.log("MaxDeniedClaim Count: ", claimQueue.maxDeniedClaimCount.toNumber())
     }
   })
 
@@ -324,16 +357,7 @@ describe("M4A_Protocol", () => {
       {
         //Fund Wallet
         let newWallet = anchor.web3.Keypair.generate()
-        let token_airdrop = await program.provider.connection.requestAirdrop(newWallet.publicKey, 
-          1000 * 10002240)
-  
-        const latestBlockHash = await program.provider.connection.getLatestBlockhash()
-        await program.provider.connection.confirmTransaction
-        ({
-          blockhash: latestBlockHash.blockhash,
-          lastValidBlockHeight: latestBlockHash.lastValidBlockHeight,
-          signature: token_airdrop,
-        })
+        await airDropSol(newWallet.publicKey)
   
         //Init Submitter Account
         await program.methods.createSubmitterAccount()
@@ -344,14 +368,19 @@ describe("M4A_Protocol", () => {
         //Init Patient Account
         const patientFirstName = "John"
         const patientLastName = "Doe"
-        await program.methods.createPatientAccount(patientFirstName, patientLastName)
+        await program.methods.createPatientAccount(submitterPatientIndex, patientFirstName, patientLastName)
         .accounts({signer: newWallet.publicKey})
         .signers([newWallet])
         .rpc()
   
+        const walletATA = await deriveWalletATA(newWallet.publicKey, usdcMint.publicKey)
+        await createATAForWallet(newWallet, usdcMint.publicKey, walletATA)
+        await mintUSDCToWallet(usdcMint.publicKey, walletATA)
+
         await program.methods.submitClaimToQueue
         (
           patientIndex,
+          usdcMint.publicKey,
           countryIndex,
           stateIndex,
           hospitalIndex,
@@ -374,19 +403,20 @@ describe("M4A_Protocol", () => {
 
         await program.methods.assignClaimToProcessor(newWallet.publicKey).rpc()
   
-        var processorStats = await program.account.processorStats.fetch(getprocessorStatsPDA())
+        var processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
+        var claimQueue = await program.account.claimQueue.fetch(getClaimQueuePDA())
         
-        console.log("Processed Claim Count: ", processorStats.processedClaimCount)
-        console.log("MaxDeniedClaim Count: ", processorStats.maxDeniedClaimCount)
+        console.log("Processed Claim Count: ", processedClaimStats.processedClaimCount.toNumber())
+        console.log("MaxDeniedClaim Count: ", claimQueue.maxDeniedClaimCount.toNumber())
   
         await program.methods.maxDenyInProgressClaim(newWallet.publicKey).rpc()
-        var processorStats = await program.account.processorStats.fetch(getprocessorStatsPDA())
+        var processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
   
         //const derp = await program.account.processedClaim.all()
         //console.log("PDA Actual: ", derp[i-1])
         //console.log("PDA Helper: ", getProcessedClaimPDA(i-1))
   
-        console.log("MaxDeniedClaim Count: ", processorStats.maxDeniedClaimCount)
+        console.log("MaxDeniedClaim Count: ", claimQueue.maxDeniedClaimCount.toNumber())
       }
     })
 
@@ -397,16 +427,7 @@ describe("M4A_Protocol", () => {
     {
       //Fund Wallet
       let newWallet = anchor.web3.Keypair.generate()
-      let token_airdrop = await program.provider.connection.requestAirdrop(newWallet.publicKey, 
-        1000 * 10002240)
-
-      const latestBlockHash = await program.provider.connection.getLatestBlockhash()
-      await program.provider.connection.confirmTransaction
-      ({
-        blockhash: latestBlockHash.blockhash,
-        lastValidBlockHeight: latestBlockHash.lastValidBlockHeight,
-        signature: token_airdrop,
-      })
+      await airDropSol(newWallet.publicKey)
 
       //Init Submitter Account
       await program.methods.createSubmitterAccount()
@@ -417,14 +438,19 @@ describe("M4A_Protocol", () => {
       //Init Patient Account
       const patientFirstName = "John"
       const patientLastName = "Doe"
-      await program.methods.createPatientAccount(patientFirstName, patientLastName)
+      await program.methods.createPatientAccount(submitterPatientIndex, patientFirstName, patientLastName)
       .accounts({signer: newWallet.publicKey})
       .signers([newWallet])
       .rpc()
 
+      const walletATA = await deriveWalletATA(newWallet.publicKey, usdcMint.publicKey)
+      await createATAForWallet(newWallet, usdcMint.publicKey, walletATA)
+      await mintUSDCToWallet(usdcMint.publicKey, walletATA)
+
       await program.methods.submitClaimToQueue
       (
         patientIndex,
+        usdcMint.publicKey,
         countryIndex,
         stateIndex,
         hospitalIndex,
@@ -450,17 +476,17 @@ describe("M4A_Protocol", () => {
       await program.methods.createPatientRecord(newWallet.publicKey).rpc()
       await program.methods.createHospitalAndInsuranceCompanyRecords(newWallet.publicKey).rpc()
     
-      var processorStats = await program.account.processorStats.fetch(getprocessorStatsPDA())
+      var processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
 
-      console.log("Processed Claim Count: ", processorStats.processedClaimCount)
-      console.log("DeniedClaim Count: ", processorStats.deniedClaimCount)
+      console.log("Processed Claim Count: ", processedClaimStats.processedClaimCount.toNumber())
+      console.log("DeniedClaim Count: ", processedClaimStats.deniedClaimCount.toNumber())
 
       const denialReason = "Testing"
       await program.methods.denyClaimWithAllRecords(newWallet.publicKey, denialReason).rpc()
-      processorStats = await program.account.processorStats.fetch(getprocessorStatsPDA())
+      processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
 
-      console.log("Processed Claim Count: ", processorStats.processedClaimCount)
-      console.log("DeniedClaim Count: ", processorStats.deniedClaimCount)
+      console.log("Processed Claim Count: ", processedClaimStats.processedClaimCount.toNumber())
+      console.log("DeniedClaim Count: ", processedClaimStats.deniedClaimCount.toNumber())
     }
   })
 
@@ -471,16 +497,7 @@ describe("M4A_Protocol", () => {
     {
       //Fund Wallet
       let newWallet = anchor.web3.Keypair.generate()
-      let token_airdrop = await program.provider.connection.requestAirdrop(newWallet.publicKey, 
-        1000 * 10002240)
-
-      const latestBlockHash = await program.provider.connection.getLatestBlockhash()
-      await program.provider.connection.confirmTransaction
-      ({
-        blockhash: latestBlockHash.blockhash,
-        lastValidBlockHeight: latestBlockHash.lastValidBlockHeight,
-        signature: token_airdrop,
-      })
+      await airDropSol(newWallet.publicKey)
 
       //Init Submitter Account
       await program.methods.createSubmitterAccount()
@@ -491,14 +508,19 @@ describe("M4A_Protocol", () => {
       //Init Patient Account
       const patientFirstName = "John"
       const patientLastName = "Doe"
-      await program.methods.createPatientAccount(patientFirstName, patientLastName)
+      await program.methods.createPatientAccount(submitterPatientIndex, patientFirstName, patientLastName)
       .accounts({signer: newWallet.publicKey})
       .signers([newWallet])
       .rpc()
 
+      const walletATA = await deriveWalletATA(newWallet.publicKey, usdcMint.publicKey)
+      await createATAForWallet(newWallet, usdcMint.publicKey, walletATA)
+      await mintUSDCToWallet(usdcMint.publicKey, walletATA)
+
       await program.methods.submitClaimToQueue
       (
         patientIndex,
+        usdcMint.publicKey,
         countryIndex,
         stateIndex,
         hospitalIndex,
@@ -523,15 +545,15 @@ describe("M4A_Protocol", () => {
 
       const denialReason = "Testing"
 
-      var processorStats = await program.account.processorStats.fetch(getprocessorStatsPDA())
-      console.log("Processed Claim Count: ", processorStats.processedClaimCount)
-      console.log("DeniedClaim Count: ", processorStats.deniedClaimCount)
+      var processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
+      console.log("Processed Claim Count: ", processedClaimStats.processedClaimCount.toNumber())
+      console.log("DeniedClaim Count: ", processedClaimStats.deniedClaimCount.toNumber())
 
       await program.methods.createPatientRecordAndDenyClaim(newWallet.publicKey, denialReason).rpc()
 
-      processorStats = await program.account.processorStats.fetch(getprocessorStatsPDA())
-      console.log("Processed Claim Count: ", processorStats.processedClaimCount)
-      console.log("DeniedClaim Count: ", processorStats.deniedClaimCount)
+      processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
+      console.log("Processed Claim Count: ", processedClaimStats.processedClaimCount.toNumber())
+      console.log("DeniedClaim Count: ", processedClaimStats.deniedClaimCount.toNumber())
     }
   })
 
@@ -542,16 +564,7 @@ describe("M4A_Protocol", () => {
     {
       //Fund Wallet
       let newWallet = anchor.web3.Keypair.generate()
-      let token_airdrop = await program.provider.connection.requestAirdrop(newWallet.publicKey, 
-        1000 * 10002240)
-
-      const latestBlockHash = await program.provider.connection.getLatestBlockhash()
-      await program.provider.connection.confirmTransaction
-      ({
-        blockhash: latestBlockHash.blockhash,
-        lastValidBlockHeight: latestBlockHash.lastValidBlockHeight,
-        signature: token_airdrop,
-      })
+      await airDropSol(newWallet.publicKey)
 
       //Init Submitter Account
       await program.methods.createSubmitterAccount()
@@ -562,7 +575,7 @@ describe("M4A_Protocol", () => {
       //Init Patient Account
       const patientFirstName = "John"
       const patientLastName = "Doe"
-      await program.methods.createPatientAccount(patientFirstName, patientLastName)
+      await program.methods.createPatientAccount(submitterPatientIndex, patientFirstName, patientLastName)
       .accounts({signer: newWallet.publicKey})
       .signers([newWallet])
       .rpc()
@@ -570,9 +583,14 @@ describe("M4A_Protocol", () => {
       const wrongHospitalIndex = 11
       const wrongInsuranceIndex = 11
 
+      const walletATA = await deriveWalletATA(newWallet.publicKey, usdcMint.publicKey)
+      await createATAForWallet(newWallet, usdcMint.publicKey, walletATA)
+      await mintUSDCToWallet(usdcMint.publicKey, walletATA)
+
       await program.methods.submitClaimToQueue
       (
         patientIndex,
+        usdcMint.publicKey,
         countryIndex,
         stateIndex,
         wrongHospitalIndex,
@@ -613,16 +631,7 @@ describe("M4A_Protocol", () => {
     {
       //Fund Wallet
       let newWallet = anchor.web3.Keypair.generate()
-      let token_airdrop = await program.provider.connection.requestAirdrop(newWallet.publicKey, 
-        1000 * 10002240)
-
-      const latestBlockHash = await program.provider.connection.getLatestBlockhash()
-      await program.provider.connection.confirmTransaction
-      ({
-        blockhash: latestBlockHash.blockhash,
-        lastValidBlockHeight: latestBlockHash.lastValidBlockHeight,
-        signature: token_airdrop,
-      })
+      await airDropSol(newWallet.publicKey)
 
       //Init Submitter Account
       await program.methods.createSubmitterAccount()
@@ -633,14 +642,19 @@ describe("M4A_Protocol", () => {
       //Init Patient Account
       const patientFirstName = "John"
       const patientLastName = "Doe"
-      await program.methods.createPatientAccount(patientFirstName, patientLastName)
+      await program.methods.createPatientAccount(submitterPatientIndex, patientFirstName, patientLastName)
       .accounts({signer: newWallet.publicKey})
       .signers([newWallet])
       .rpc()
 
+      const walletATA = await deriveWalletATA(newWallet.publicKey, usdcMint.publicKey)
+      await createATAForWallet(newWallet, usdcMint.publicKey, walletATA)
+      await mintUSDCToWallet(usdcMint.publicKey, walletATA)
+
       await program.methods.submitClaimToQueue
       (
         patientIndex,
+        usdcMint.publicKey,
         countryIndex,
         stateIndex,
         hospitalIndex,
@@ -688,9 +702,10 @@ describe("M4A_Protocol", () => {
   
       claims = await program.account.claim.all()
       console.log("Claim count before denial hammer: ", claims.length)
-  
-      await program.methods.dropDenialHammer().accounts({
-      }).remainingAccounts(claimsToDelete).rpc()
+
+      await program.methods.dropDenialHammer()
+      .remainingAccounts(claimsToDelete)
+      .rpc()
   
       claims = await program.account.claim.all()
       console.log("Claim count after denial hammer: ", claims.length)
@@ -704,16 +719,7 @@ describe("M4A_Protocol", () => {
     {
       //Fund Wallet
       let newWallet = anchor.web3.Keypair.generate()
-      let token_airdrop = await program.provider.connection.requestAirdrop(newWallet.publicKey, 
-        1000 * 10002240)
-
-      const latestBlockHash = await program.provider.connection.getLatestBlockhash()
-      await program.provider.connection.confirmTransaction
-      ({
-        blockhash: latestBlockHash.blockhash,
-        lastValidBlockHeight: latestBlockHash.lastValidBlockHeight,
-        signature: token_airdrop,
-      })
+      await airDropSol(newWallet.publicKey)
 
       //Init Submitter Account
       await program.methods.createSubmitterAccount()
@@ -724,14 +730,19 @@ describe("M4A_Protocol", () => {
       //Init Patient Account
       const patientFirstName = "John"
       const patientLastName = "Doe"
-      await program.methods.createPatientAccount(patientFirstName, patientLastName)
+      await program.methods.createPatientAccount(submitterPatientIndex, patientFirstName, patientLastName)
       .accounts({signer: newWallet.publicKey})
       .signers([newWallet])
       .rpc()
 
+      const walletATA = await deriveWalletATA(newWallet.publicKey, usdcMint.publicKey)
+      await createATAForWallet(newWallet, usdcMint.publicKey, walletATA)
+      await mintUSDCToWallet(usdcMint.publicKey, walletATA)
+
       await program.methods.submitClaimToQueue
       (
         patientIndex,
+        usdcMint.publicKey,
         countryIndex,
         stateIndex,
         hospitalIndex,
@@ -754,22 +765,22 @@ describe("M4A_Protocol", () => {
 
       await program.methods.assignClaimToProcessor(newWallet.publicKey).rpc()
 
-      var processorStats = await program.account.processorStats.fetch(getprocessorStatsPDA())
-      console.log("Processed Claim Count: ", processorStats.processedClaimCount)
-      console.log("Approved Claim Count: ", processorStats.approvedClaimCount)
+      var processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
+      console.log("Processed Claim Count: ", processedClaimStats.processedClaimCount.toNumber())
+      console.log("Approved Claim Count: ", processedClaimStats.approvedClaimCount.toNumber())
 
       await program.methods.createPatientRecord(newWallet.publicKey).rpc()
       await program.methods.createHospitalAndInsuranceCompanyRecords(newWallet.publicKey).rpc()
 
-      processorStats = await program.account.processorStats.fetch(getprocessorStatsPDA())
-      console.log("Processed Claim Count: ", processorStats.processedClaimCount)
-      console.log("Approved Claim Count: ", processorStats.approvedClaimCount)
+      processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
+      console.log("Processed Claim Count: ", processedClaimStats.processedClaimCount.toNumber())
+      console.log("Approved Claim Count: ", processedClaimStats.approvedClaimCount.toNumber())
 
       await program.methods.approveClaim(newWallet.publicKey).rpc()
 
-      processorStats = await program.account.processorStats.fetch(getprocessorStatsPDA())
-      console.log("Processed Claim Count: ", processorStats.processedClaimCount)
-      console.log("Approved Claim Count: ", processorStats.approvedClaimCount)
+      processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
+      console.log("Processed Claim Count: ", processedClaimStats.processedClaimCount.toNumber())
+      console.log("Approved Claim Count: ", processedClaimStats.approvedClaimCount.toNumber())
     }
   })
 
@@ -778,6 +789,7 @@ describe("M4A_Protocol", () => {
     await program.methods.submitClaimToQueue
     (
       patientIndex,
+      usdcMint.publicKey,
       countryIndex,
       stateIndex,
       hospitalIndex,
@@ -840,16 +852,7 @@ describe("M4A_Protocol", () => {
     {
       //Fund Wallet
       let newWallet = anchor.web3.Keypair.generate()
-      let token_airdrop = await program.provider.connection.requestAirdrop(newWallet.publicKey, 
-        1000 * 10002240)
-
-      const latestBlockHash = await program.provider.connection.getLatestBlockhash()
-      await program.provider.connection.confirmTransaction
-      ({
-        blockhash: latestBlockHash.blockhash,
-        lastValidBlockHeight: latestBlockHash.lastValidBlockHeight,
-        signature: token_airdrop,
-      })
+      await airDropSol(newWallet.publicKey)
 
       //Init Submitter Account
       await program.methods.createSubmitterAccount()
@@ -860,14 +863,19 @@ describe("M4A_Protocol", () => {
       //Init Patient Account
       const patientFirstName = "John"
       const patientLastName = "Doe"
-      await program.methods.createPatientAccount(patientFirstName, patientLastName)
+      await program.methods.createPatientAccount(submitterPatientIndex, patientFirstName, patientLastName)
       .accounts({signer: newWallet.publicKey})
       .signers([newWallet])
       .rpc()
 
+      const walletATA = await deriveWalletATA(newWallet.publicKey, usdcMint.publicKey)
+      await createATAForWallet(newWallet, usdcMint.publicKey, walletATA)
+      await mintUSDCToWallet(usdcMint.publicKey, walletATA)
+
       await program.methods.submitClaimToQueue
       (
         patientIndex,
+        usdcMint.publicKey,
         countryIndex,
         stateIndex,
         hospitalIndex,
@@ -890,36 +898,36 @@ describe("M4A_Protocol", () => {
 
       await program.methods.assignClaimToProcessor(newWallet.publicKey).rpc()
 
-      var processorStats = await program.account.processorStats.fetch(getprocessorStatsPDA())
-      console.log("Processed Claim Count: ", processorStats.processedClaimCount)
-      console.log("Approved Claim Count: ", processorStats.approvedClaimCount)
+      var processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
+      console.log("Processed Claim Count: ", processedClaimStats.processedClaimCount.toNumber())
+      console.log("Approved Claim Count: ", processedClaimStats.approvedClaimCount.toNumber())
 
       const denialReason = "Testing"
       await program.methods.createPatientRecordAndDenyClaim(newWallet.publicKey, denialReason).rpc()
 
-      processorStats = await program.account.processorStats.fetch(getprocessorStatsPDA())
-      console.log("Processed Claim Count: ", processorStats.processedClaimCount)
-      console.log("Approved Claim Count: ", processorStats.approvedClaimCount)
+      processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
+      console.log("Processed Claim Count: ", processedClaimStats.processedClaimCount.toNumber())
+      console.log("Approved Claim Count: ", processedClaimStats.approvedClaimCount.toNumber())
 
       const appealReason = "Testing Appeal"
       const processor = await program.account.processorAccount.fetch(getProcessorPDA(program.provider.publicKey))
 
-      await program.methods.appealDeniedClaimWithOnlyPatientRecord(program.provider.publicKey, processor.processedClaimCount.sub(new anchor.BN(1)), appealReason)
+      await program.methods.appealDeniedClaimWithOnlyPatientRecord(program.provider.publicKey, processor.processedClaimCount.sub(new anchor.BN(1)), usdcMint.publicKey, appealReason)
       .accounts({signer: newWallet.publicKey})
       .signers([newWallet])
       .rpc()
 
-      processorStats = await program.account.processorStats.fetch(getprocessorStatsPDA())
-      console.log("Processed Claim Count: ", processorStats.processedClaimCount)
-      console.log("Approved Claim Count: ", processorStats.approvedClaimCount)
-      console.log("Undenied Claim Count: ", processorStats.undeniedClaimCount)
+      processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
+      console.log("Processed Claim Count: ", processedClaimStats.processedClaimCount.toNumber())
+      console.log("Approved Claim Count: ", processedClaimStats.approvedClaimCount.toNumber())
+      console.log("Undenied Claim Count: ", processedClaimStats.undeniedClaimCount.toNumber())
       
       await program.methods.undenyClaimAndCreateHospitalAndInsuranceCompanyRecords(program.provider.publicKey, processor.processedClaimCount.sub(new anchor.BN(1))).rpc()
 
-      processorStats = await program.account.processorStats.fetch(getprocessorStatsPDA())
-      console.log("Processed Claim Count: ", processorStats.processedClaimCount)
-      console.log("Approved Claim Count: ", processorStats.approvedClaimCount)
-      console.log("Undenied Claim Count: ", processorStats.undeniedClaimCount)
+      processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
+      console.log("Processed Claim Count: ", processedClaimStats.processedClaimCount.toNumber())
+      console.log("Approved Claim Count: ", processedClaimStats.approvedClaimCount.toNumber())
+      console.log("Undenied Claim Count: ", processedClaimStats.undeniedClaimCount.toNumber())
     }
   })
 
@@ -930,16 +938,7 @@ describe("M4A_Protocol", () => {
     {
       //Fund Wallet
       let newWallet = anchor.web3.Keypair.generate()
-      let token_airdrop = await program.provider.connection.requestAirdrop(newWallet.publicKey, 
-        1000 * 10002240)
-
-      const latestBlockHash = await program.provider.connection.getLatestBlockhash()
-      await program.provider.connection.confirmTransaction
-      ({
-        blockhash: latestBlockHash.blockhash,
-        lastValidBlockHeight: latestBlockHash.lastValidBlockHeight,
-        signature: token_airdrop,
-      })
+      await airDropSol(newWallet.publicKey)
 
       //Init Submitter Account
       await program.methods.createSubmitterAccount()
@@ -950,14 +949,19 @@ describe("M4A_Protocol", () => {
       //Init Patient Account
       const patientFirstName = "John"
       const patientLastName = "Doe"
-      await program.methods.createPatientAccount(patientFirstName, patientLastName)
+      await program.methods.createPatientAccount(submitterPatientIndex, patientFirstName, patientLastName)
       .accounts({signer: newWallet.publicKey})
       .signers([newWallet])
       .rpc()
 
+      const walletATA = await deriveWalletATA(newWallet.publicKey, usdcMint.publicKey)
+      await createATAForWallet(newWallet, usdcMint.publicKey, walletATA)
+      await mintUSDCToWallet(usdcMint.publicKey, walletATA)
+
       await program.methods.submitClaimToQueue
       (
         patientIndex,
+        usdcMint.publicKey,
         countryIndex,
         stateIndex,
         hospitalIndex,
@@ -980,43 +984,43 @@ describe("M4A_Protocol", () => {
 
       await program.methods.assignClaimToProcessor(newWallet.publicKey).rpc()
 
-      var processorStats = await program.account.processorStats.fetch(getprocessorStatsPDA())
-      console.log("Processed Claim Count: ", processorStats.processedClaimCount)
-      console.log("Approved Claim Count: ", processorStats.approvedClaimCount)
+      var processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
+      console.log("Processed Claim Count: ", processedClaimStats.processedClaimCount.toNumber())
+      console.log("Approved Claim Count: ", processedClaimStats.approvedClaimCount.toNumber())
 
       await program.methods.createPatientRecord(newWallet.publicKey).rpc()
       await program.methods.createHospitalAndInsuranceCompanyRecords(newWallet.publicKey).rpc()
 
-      processorStats = await program.account.processorStats.fetch(getprocessorStatsPDA())
-      console.log("Processed Claim Count: ", processorStats.processedClaimCount)
-      console.log("Approved Claim Count: ", processorStats.approvedClaimCount)
+      processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
+      console.log("Processed Claim Count: ", processedClaimStats.processedClaimCount.toNumber())
+      console.log("Approved Claim Count: ", processedClaimStats.approvedClaimCount.toNumber())
       
       const denialReason = "Testing"
       await program.methods.denyClaimWithAllRecords(newWallet.publicKey, denialReason).rpc()
 
-      processorStats = await program.account.processorStats.fetch(getprocessorStatsPDA())
-      console.log("Processed Claim Count: ", processorStats.processedClaimCount)
-      console.log("Approved Claim Count: ", processorStats.approvedClaimCount)
+      processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
+      console.log("Processed Claim Count: ", processedClaimStats.processedClaimCount.toNumber())
+      console.log("Approved Claim Count: ", processedClaimStats.approvedClaimCount.toNumber())
       
       const appealReason = "Testing Appeal"
       const processor = await program.account.processorAccount.fetch(getProcessorPDA(program.provider.publicKey))
 
-      await program.methods.appealDeniedClaimWithAllRecords(program.provider.publicKey, processor.processedClaimCount.sub(new anchor.BN(1)), appealReason)
+      await program.methods.appealDeniedClaimWithAllRecords(program.provider.publicKey, processor.processedClaimCount.sub(new anchor.BN(1)), usdcMint.publicKey, appealReason)
       .accounts({signer: newWallet.publicKey})
       .signers([newWallet])
       .rpc()
 
-      processorStats = await program.account.processorStats.fetch(getprocessorStatsPDA())
-      console.log("Processed Claim Count: ", processorStats.processedClaimCount)
-      console.log("Approved Claim Count: ", processorStats.approvedClaimCount)
-      console.log("Undenied Claim Count: ", processorStats.undeniedClaimCount)
+      processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
+      console.log("Processed Claim Count: ", processedClaimStats.processedClaimCount.toNumber())
+      console.log("Approved Claim Count: ", processedClaimStats.approvedClaimCount.toNumber())
+      console.log("Undenied Claim Count: ", processedClaimStats.undeniedClaimCount.toNumber())
 
       await program.methods.undenyClaimWithAllRecords(program.provider.publicKey, processor.processedClaimCount.sub(new anchor.BN(1))).rpc()
 
-      processorStats = await program.account.processorStats.fetch(getprocessorStatsPDA())
-      console.log("Processed Claim Count: ", processorStats.processedClaimCount)
-      console.log("Approved Claim Count: ", processorStats.approvedClaimCount)
-      console.log("Undenied Claim Count: ", processorStats.undeniedClaimCount)
+      processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
+      console.log("Processed Claim Count: ", processedClaimStats.processedClaimCount.toNumber())
+      console.log("Approved Claim Count: ", processedClaimStats.approvedClaimCount.toNumber())
+      console.log("Undenied Claim Count: ", processedClaimStats.undeniedClaimCount.toNumber())
     }
   })
 
@@ -1027,16 +1031,7 @@ describe("M4A_Protocol", () => {
     {
       //Fund Wallet
       let newWallet = anchor.web3.Keypair.generate()
-      let token_airdrop = await program.provider.connection.requestAirdrop(newWallet.publicKey, 
-        1000 * 10002240)
-
-      const latestBlockHash = await program.provider.connection.getLatestBlockhash()
-      await program.provider.connection.confirmTransaction
-      ({
-        blockhash: latestBlockHash.blockhash,
-        lastValidBlockHeight: latestBlockHash.lastValidBlockHeight,
-        signature: token_airdrop,
-      })
+      await airDropSol(newWallet.publicKey)
 
       //Init Submitter Account
       await program.methods.createSubmitterAccount()
@@ -1047,14 +1042,19 @@ describe("M4A_Protocol", () => {
       //Init Patient Account
       const patientFirstName = "John"
       const patientLastName = "Doe"
-      await program.methods.createPatientAccount(patientFirstName, patientLastName)
+      await program.methods.createPatientAccount(submitterPatientIndex, patientFirstName, patientLastName)
       .accounts({signer: newWallet.publicKey})
       .signers([newWallet])
       .rpc()
 
+      const walletATA = await deriveWalletATA(newWallet.publicKey, usdcMint.publicKey)
+      await createATAForWallet(newWallet, usdcMint.publicKey, walletATA)
+      await mintUSDCToWallet(usdcMint.publicKey, walletATA)
+
       await program.methods.submitClaimToQueue
       (
         patientIndex,
+        usdcMint.publicKey,
         countryIndex,
         stateIndex,
         hospitalIndex,
@@ -1077,35 +1077,35 @@ describe("M4A_Protocol", () => {
 
       await program.methods.assignClaimToProcessor(newWallet.publicKey).rpc()
 
-      var processorStats = await program.account.processorStats.fetch(getprocessorStatsPDA())
-      console.log("Processed Claim Count: ", processorStats.processedClaimCount)
-      console.log("Denied Claim Count: ", processorStats.deniedClaimCount)
+      var processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
+      console.log("Processed Claim Count: ", processedClaimStats.processedClaimCount.toNumber())
+      console.log("Denied Claim Count: ", processedClaimStats.deniedClaimCount.toNumber())
 
       const denialReason = "Testing"
       await program.methods.createPatientRecordAndDenyClaim(newWallet.publicKey, denialReason).rpc()
 
-      processorStats = await program.account.processorStats.fetch(getprocessorStatsPDA())
-      console.log("Processed Claim Count: ", processorStats.processedClaimCount)
-      console.log("Denied Claim Count: ", processorStats.deniedClaimCount)
+      processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
+      console.log("Processed Claim Count: ", processedClaimStats.processedClaimCount.toNumber())
+      console.log("Denied Claim Count: ", processedClaimStats.deniedClaimCount.toNumber())
 
       const appealReason = "Testing Appeal"
       const processor = await program.account.processorAccount.fetch(getProcessorPDA(program.provider.publicKey))
 
-      await program.methods.appealDeniedClaimWithOnlyPatientRecord(program.provider.publicKey, processor.processedClaimCount.sub(new anchor.BN(1)), appealReason)
+      await program.methods.appealDeniedClaimWithOnlyPatientRecord(program.provider.publicKey, processor.processedClaimCount.sub(new anchor.BN(1)), usdcMint.publicKey, appealReason)
       .accounts({signer: newWallet.publicKey})
       .signers([newWallet])
       .rpc()
       
-      processorStats = await program.account.processorStats.fetch(getprocessorStatsPDA())
-      console.log("Processed Claim Count: ", processorStats.processedClaimCount)
-      console.log("Denied Appeal Count: ", processorStats.deniedAppealCount)
+      processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
+      console.log("Processed Claim Count: ", processedClaimStats.processedClaimCount.toNumber())
+      console.log("Denied Appeal Count: ", processedClaimStats.deniedAppealCount.toNumber())
 
       const denyAppealReason = "Testing Denying Appeal"
       await program.methods.denyAppealedClaimWithOnlyPatientRecord(program.provider.publicKey, processor.processedClaimCount.sub(new anchor.BN(1)), denyAppealReason).rpc()
 
-      processorStats = await program.account.processorStats.fetch(getprocessorStatsPDA())
-      console.log("Processed Claim Count: ", processorStats.processedClaimCount)
-      console.log("Denied Appeal Count: ", processorStats.deniedAppealCount)
+      processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
+      console.log("Processed Claim Count: ", processedClaimStats.processedClaimCount.toNumber())
+      console.log("Denied Appeal Count: ", processedClaimStats.deniedAppealCount.toNumber())
     }
   })
   
@@ -1116,16 +1116,7 @@ describe("M4A_Protocol", () => {
     {
       //Fund Wallet
       let newWallet = anchor.web3.Keypair.generate()
-      let token_airdrop = await program.provider.connection.requestAirdrop(newWallet.publicKey, 
-        1000 * 10002240)
-
-      const latestBlockHash = await program.provider.connection.getLatestBlockhash()
-      await program.provider.connection.confirmTransaction
-      ({
-        blockhash: latestBlockHash.blockhash,
-        lastValidBlockHeight: latestBlockHash.lastValidBlockHeight,
-        signature: token_airdrop,
-      })
+      await airDropSol(newWallet.publicKey)
 
       //Init Submitter Account
       await program.methods.createSubmitterAccount()
@@ -1136,14 +1127,19 @@ describe("M4A_Protocol", () => {
       //Init Patient Account
       const patientFirstName = "John"
       const patientLastName = "Doe"
-      await program.methods.createPatientAccount(patientFirstName, patientLastName)
+      await program.methods.createPatientAccount(submitterPatientIndex, patientFirstName, patientLastName)
       .accounts({signer: newWallet.publicKey})
       .signers([newWallet])
       .rpc()
 
+      const walletATA = await deriveWalletATA(newWallet.publicKey, usdcMint.publicKey)
+      await createATAForWallet(newWallet, usdcMint.publicKey, walletATA)
+      await mintUSDCToWallet(usdcMint.publicKey, walletATA)
+
       await program.methods.submitClaimToQueue
       (
         patientIndex,
+        usdcMint.publicKey,
         countryIndex,
         stateIndex,
         hospitalIndex,
@@ -1169,33 +1165,33 @@ describe("M4A_Protocol", () => {
       await program.methods.createPatientRecord(newWallet.publicKey).rpc()
       await program.methods.createHospitalAndInsuranceCompanyRecords(newWallet.publicKey).rpc()
 
-      var processorStats = await program.account.processorStats.fetch(getprocessorStatsPDA())
-      console.log("Processed Claim Count: ", processorStats.processedClaimCount)
-      console.log("Denied Claim Count: ", processorStats.deniedClaimCount)
+      var processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
+      console.log("Processed Claim Count: ", processedClaimStats.processedClaimCount.toNumber())
+      console.log("Denied Claim Count: ", processedClaimStats.deniedClaimCount.toNumber())
       
       const denialReason = "Testing"
       await program.methods.denyClaimWithAllRecords(newWallet.publicKey, denialReason).rpc()
 
-      processorStats = await program.account.processorStats.fetch(getprocessorStatsPDA())
-      console.log("Processed Claim Count: ", processorStats.processedClaimCount)
-      console.log("Denied Claim Count: ", processorStats.deniedClaimCount)
+      processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
+      console.log("Processed Claim Count: ", processedClaimStats.processedClaimCount.toNumber())
+      console.log("Denied Claim Count: ", processedClaimStats.deniedClaimCount.toNumber())
       
       const appealReason = "Testing Appeal"
       const processor = await program.account.processorAccount.fetch(getProcessorPDA(program.provider.publicKey))
 
-      await program.methods.appealDeniedClaimWithAllRecords(program.provider.publicKey, processor.processedClaimCount.sub(new anchor.BN(1)), appealReason)
+      await program.methods.appealDeniedClaimWithAllRecords(program.provider.publicKey, processor.processedClaimCount.sub(new anchor.BN(1)), usdcMint.publicKey, appealReason)
       .accounts({signer: newWallet.publicKey})
       .signers([newWallet])
       .rpc()
 
-      processorStats = await program.account.processorStats.fetch(getprocessorStatsPDA())
-      console.log("Denied Appeal Count: ", processorStats.deniedAppealCount)
+      processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
+      console.log("Denied Appeal Count: ", processedClaimStats.deniedAppealCount.toNumber())
 
       const denyAppealReason = "Testing Denying Appeal"
       await program.methods.denyAppealedClaimWithAllRecords(program.provider.publicKey, processor.processedClaimCount.sub(new anchor.BN(1)), denyAppealReason).rpc()
 
-      processorStats = await program.account.processorStats.fetch(getprocessorStatsPDA())
-      console.log("Denied Appeal Count: ", processorStats.deniedAppealCount)
+      processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
+      console.log("Denied Appeal Count: ", processedClaimStats.deniedAppealCount.toNumber())
     }
   })
 
@@ -1206,16 +1202,7 @@ describe("M4A_Protocol", () => {
     {
       //Fund Wallet
       let newWallet = anchor.web3.Keypair.generate()
-      let token_airdrop = await program.provider.connection.requestAirdrop(newWallet.publicKey, 
-        1000 * 10002240)
-
-      const latestBlockHash = await program.provider.connection.getLatestBlockhash()
-      await program.provider.connection.confirmTransaction
-      ({
-        blockhash: latestBlockHash.blockhash,
-        lastValidBlockHeight: latestBlockHash.lastValidBlockHeight,
-        signature: token_airdrop,
-      })
+      await airDropSol(newWallet.publicKey)
 
       //Init Submitter Account
       await program.methods.createSubmitterAccount()
@@ -1226,14 +1213,19 @@ describe("M4A_Protocol", () => {
       //Init Patient Account
       const patientFirstName = "John"
       const patientLastName = "Doe"
-      await program.methods.createPatientAccount(patientFirstName, patientLastName)
+      await program.methods.createPatientAccount(submitterPatientIndex, patientFirstName, patientLastName)
       .accounts({signer: newWallet.publicKey})
       .signers([newWallet])
       .rpc()
 
+      const walletATA = await deriveWalletATA(newWallet.publicKey, usdcMint.publicKey)
+      await createATAForWallet(newWallet, usdcMint.publicKey, walletATA)
+      await mintUSDCToWallet(usdcMint.publicKey, walletATA)
+
       await program.methods.submitClaimToQueue
       (
         patientIndex,
+        usdcMint.publicKey,
         countryIndex,
         stateIndex,
         hospitalIndex,
@@ -1256,16 +1248,16 @@ describe("M4A_Protocol", () => {
 
       await program.methods.assignClaimToProcessor(newWallet.publicKey).rpc()
 
-      var processorStats = await program.account.processorStats.fetch(getprocessorStatsPDA())
-      console.log("Processed Claim Count: ", processorStats.processedClaimCount)
-      console.log("Approved Claim Count: ", processorStats.approvedClaimCount)
+      var processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
+      console.log("Processed Claim Count: ", processedClaimStats.processedClaimCount.toNumber())
+      console.log("Approved Claim Count: ", processedClaimStats.approvedClaimCount.toNumber())
 
       const denialReason = "Testing"
       await program.methods.createPatientRecordAndDenyClaim(newWallet.publicKey, denialReason).rpc()
 
-      processorStats = await program.account.processorStats.fetch(getprocessorStatsPDA())
-      console.log("Processed Claim Count: ", processorStats.processedClaimCount)
-      console.log("Approved Claim Count: ", processorStats.approvedClaimCount)
+      processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
+      console.log("Processed Claim Count: ", processedClaimStats.processedClaimCount.toNumber())
+      console.log("Approved Claim Count: ", processedClaimStats.approvedClaimCount.toNumber())
 
       const newHospitalBillInvoiceNumber = "abc123"
       const newClaimNote = "NEW PROCESSED CLAIM NOTE" 
@@ -1293,16 +1285,7 @@ describe("M4A_Protocol", () => {
     {
       //Fund Wallet
       let newWallet = anchor.web3.Keypair.generate()
-      let token_airdrop = await program.provider.connection.requestAirdrop(newWallet.publicKey, 
-        1000 * 10002240)
-
-      const latestBlockHash = await program.provider.connection.getLatestBlockhash()
-      await program.provider.connection.confirmTransaction
-      ({
-        blockhash: latestBlockHash.blockhash,
-        lastValidBlockHeight: latestBlockHash.lastValidBlockHeight,
-        signature: token_airdrop,
-      })
+      await airDropSol(newWallet.publicKey)
 
       //Init Submitter Account
       await program.methods.createSubmitterAccount()
@@ -1313,14 +1296,19 @@ describe("M4A_Protocol", () => {
       //Init Patient Account
       const patientFirstName = "John"
       const patientLastName = "Doe"
-      await program.methods.createPatientAccount(patientFirstName, patientLastName)
+      await program.methods.createPatientAccount(submitterPatientIndex, patientFirstName, patientLastName)
       .accounts({signer: newWallet.publicKey})
       .signers([newWallet])
       .rpc()
 
+      const walletATA = await deriveWalletATA(newWallet.publicKey, usdcMint.publicKey)
+      await createATAForWallet(newWallet, usdcMint.publicKey, walletATA)
+      await mintUSDCToWallet(usdcMint.publicKey, walletATA)
+
       await program.methods.submitClaimToQueue
       (
         patientIndex,
+        usdcMint.publicKey,
         countryIndex,
         stateIndex,
         hospitalIndex,
@@ -1343,22 +1331,22 @@ describe("M4A_Protocol", () => {
 
       await program.methods.assignClaimToProcessor(newWallet.publicKey).rpc()
 
-      var processorStats = await program.account.processorStats.fetch(getprocessorStatsPDA())
-      console.log("Processed Claim Count: ", processorStats.processedClaimCount)
-      console.log("Approved Claim Count: ", processorStats.approvedClaimCount)
+      var processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
+      console.log("Processed Claim Count: ", processedClaimStats.processedClaimCount.toNumber())
+      console.log("Approved Claim Count: ", processedClaimStats.approvedClaimCount.toNumber())
 
       await program.methods.createPatientRecord(newWallet.publicKey).rpc()
       await program.methods.createHospitalAndInsuranceCompanyRecords(newWallet.publicKey).rpc()
 
-      processorStats = await program.account.processorStats.fetch(getprocessorStatsPDA())
-      console.log("Processed Claim Count: ", processorStats.processedClaimCount)
-      console.log("Approved Claim Count: ", processorStats.approvedClaimCount)
+      processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
+      console.log("Processed Claim Count: ", processedClaimStats.processedClaimCount.toNumber())
+      console.log("Approved Claim Count: ", processedClaimStats.approvedClaimCount.toNumber())
 
       await program.methods.approveClaim(newWallet.publicKey).rpc()
 
-      processorStats = await program.account.processorStats.fetch(getprocessorStatsPDA())
-      console.log("Processed Claim Count: ", processorStats.processedClaimCount)
-      console.log("Approved Claim Count: ", processorStats.approvedClaimCount)
+      processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
+      console.log("Processed Claim Count: ", processedClaimStats.processedClaimCount.toNumber())
+      console.log("Approved Claim Count: ", processedClaimStats.approvedClaimCount.toNumber())
       
       const newHospitalBillInvoiceNumber = "abc123"
       const newClaimNote = "NEW PROCESSED CLAIM NOTE" 
@@ -1385,16 +1373,7 @@ describe("M4A_Protocol", () => {
     {
       //Fund Wallet
       let newWallet = anchor.web3.Keypair.generate()
-      let token_airdrop = await program.provider.connection.requestAirdrop(newWallet.publicKey, 
-        1000 * 10002240)
-
-      const latestBlockHash = await program.provider.connection.getLatestBlockhash()
-      await program.provider.connection.confirmTransaction
-      ({
-        blockhash: latestBlockHash.blockhash,
-        lastValidBlockHeight: latestBlockHash.lastValidBlockHeight,
-        signature: token_airdrop,
-      })
+      await airDropSol(newWallet.publicKey)
 
       //Init Submitter Account
       await program.methods.createSubmitterAccount()
@@ -1405,14 +1384,19 @@ describe("M4A_Protocol", () => {
       //Init Patient Account
       const patientFirstName = "John"
       const patientLastName = "Doe"
-      await program.methods.createPatientAccount(patientFirstName, patientLastName)
+      await program.methods.createPatientAccount(submitterPatientIndex, patientFirstName, patientLastName)
       .accounts({signer: newWallet.publicKey})
       .signers([newWallet])
       .rpc()
 
+      const walletATA = await deriveWalletATA(newWallet.publicKey, usdcMint.publicKey)
+      await createATAForWallet(newWallet, usdcMint.publicKey, walletATA)
+      await mintUSDCToWallet(usdcMint.publicKey, walletATA)
+
       await program.methods.submitClaimToQueue
       (
         patientIndex,
+        usdcMint.publicKey,
         countryIndex,
         stateIndex,
         hospitalIndex,
@@ -1435,34 +1419,34 @@ describe("M4A_Protocol", () => {
 
       await program.methods.assignClaimToProcessor(newWallet.publicKey).rpc()
 
-      var processorStats = await program.account.processorStats.fetch(getprocessorStatsPDA())
-      console.log("Processed Claim Count: ", processorStats.processedClaimCount)
-      console.log("Approved Claim Count: ", processorStats.approvedClaimCount)
+      var processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
+      console.log("Processed Claim Count: ", processedClaimStats.processedClaimCount.toNumber())
+      console.log("Approved Claim Count: ", processedClaimStats.approvedClaimCount.toNumber())
 
       await program.methods.createPatientRecord(newWallet.publicKey).rpc()
       await program.methods.createHospitalAndInsuranceCompanyRecords(newWallet.publicKey).rpc()
 
-      processorStats = await program.account.processorStats.fetch(getprocessorStatsPDA())
-      console.log("Processed Claim Count: ", processorStats.processedClaimCount)
-      console.log("Approved Claim Count: ", processorStats.approvedClaimCount)
+      processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
+      console.log("Processed Claim Count: ", processedClaimStats.processedClaimCount.toNumber())
+      console.log("Approved Claim Count: ", processedClaimStats.approvedClaimCount.toNumber())
       
       await program.methods.approveClaim(newWallet.publicKey).rpc()
 
-      processorStats = await program.account.processorStats.fetch(getprocessorStatsPDA())
-      console.log("Processed Claim Count: ", processorStats.processedClaimCount)
-      console.log("Approved Claim Count: ", processorStats.approvedClaimCount)
-      console.log("Undenied Claim Count: ", processorStats.undeniedClaimCount)
-      console.log("Revoked Approval Count: ", processorStats.revokedApprovalCount)
+      processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
+      console.log("Processed Claim Count: ", processedClaimStats.processedClaimCount.toNumber())
+      console.log("Approved Claim Count: ", processedClaimStats.approvedClaimCount.toNumber())
+      console.log("Undenied Claim Count: ", processedClaimStats.undeniedClaimCount.toNumber())
+      console.log("Revoked Approval Count: ", processedClaimStats.revokedApprovalCount)
 
       const denialReason = "Testing Approval Revoke"
       const processor = await program.account.processorAccount.fetch(getProcessorPDA(program.provider.publicKey))
       await program.methods.revokeApproval(program.provider.publicKey, processor.processedClaimCount.sub(new anchor.BN(1)), denialReason).rpc()
 
-      processorStats = await program.account.processorStats.fetch(getprocessorStatsPDA())
-      console.log("Processed Claim Count: ", processorStats.processedClaimCount)
-      console.log("Approved Claim Count: ", processorStats.approvedClaimCount)
-      console.log("Undenied Claim Count: ", processorStats.undeniedClaimCount)
-      console.log("Revoked Approval Count: ", processorStats.revokedApprovalCount)
+      processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
+      console.log("Processed Claim Count: ", processedClaimStats.processedClaimCount.toNumber())
+      console.log("Approved Claim Count: ", processedClaimStats.approvedClaimCount.toNumber())
+      console.log("Undenied Claim Count: ", processedClaimStats.undeniedClaimCount.toNumber())
+      console.log("Revoked Approval Count: ", processedClaimStats.revokedApprovalCount)
     }
 
     /*while(true)
@@ -1480,6 +1464,83 @@ describe("M4A_Protocol", () => {
     counter += 1
   }
 
+  async function airDropSol(walletPublicKey: PublicKey)
+  {
+    let token_airdrop = await program.provider.connection.requestAirdrop(walletPublicKey, 
+    100 * 1000000000) //1 billion lamports equals 1 SOL
+
+    const latestBlockHash = await program.provider.connection.getLatestBlockhash()
+    await program.provider.connection.confirmTransaction
+    ({
+      blockhash: latestBlockHash.blockhash,
+      lastValidBlockHeight: latestBlockHash.lastValidBlockHeight,
+      signature: token_airdrop
+    })
+  }
+
+  async function deriveWalletATA(walletPublicKey: PublicKey, tokenMintAddress: PublicKey)
+  {
+    return await Token.getAssociatedTokenAddress
+    (
+      ASSOCIATED_TOKEN_PROGRAM_ID,
+      TOKEN_PROGRAM_ID,
+      tokenMintAddress,
+      walletPublicKey
+    )
+  }
+
+  async function createATAForWallet(walletKeyPair: Keypair, tokenMintAddress: PublicKey, walletATA: PublicKey)
+  {
+    //1. Add createATA instruction to transaction
+    const transaction = new Transaction().add
+    (
+      Token.createAssociatedTokenAccountInstruction
+      (
+        ASSOCIATED_TOKEN_PROGRAM_ID,
+        TOKEN_PROGRAM_ID,
+        tokenMintAddress,
+        walletATA,
+        walletKeyPair.publicKey,
+        walletKeyPair.publicKey
+      )
+    )
+
+    //2. Fetch the latest blockhash and set it on the transaction.
+    const latestBlockhash = await program.provider.connection.getLatestBlockhash()
+    transaction.recentBlockhash = latestBlockhash.blockhash
+    transaction.feePayer = walletKeyPair.publicKey
+
+    //3. Sign the transaction
+    transaction.sign(walletKeyPair);
+    //const signedTransaction = await program.provider.wallet.signTransaction(transaction)
+
+    //4. Send the signed transaction to the network.
+    //We get the signature back, which can be used to track the transaction.
+    const tx = await program.provider.connection.sendRawTransaction(transaction.serialize())
+
+    await program.provider.connection.confirmTransaction(tx, 'processed')
+  }
+
+  async function mintUSDCToWallet(tokenMintAddress: PublicKey, walletATA: PublicKey)
+  {
+    //1. Add createMintTo instruction to transaction
+    const transaction = new Transaction().add
+    (
+      Token.createMintToInstruction
+      (
+        TOKEN_PROGRAM_ID,
+        tokenMintAddress,
+        walletATA,
+        program.provider.publicKey,
+        [testingWalletKeypair],
+        10000000//$10.00
+      )
+    )
+
+    // 3. Send the transaction
+    await program.provider.sendAndConfirm(transaction);
+  }
+
   function getM4AProtocolCEOAccountPDA()
   {
     const [m4aProtocolCEOPDA] = anchor.web3.PublicKey.findProgramAddressSync
@@ -1492,28 +1553,16 @@ describe("M4A_Protocol", () => {
     return m4aProtocolCEOPDA
   }
 
-  function getM4AProtocolPDA()
+  function getProcessedClaimStatsPDA()
   {
-    const [m4aProtocolPDA] = anchor.web3.PublicKey.findProgramAddressSync
+    const [processedClaimStats] = anchor.web3.PublicKey.findProgramAddressSync
     (
       [
-        new TextEncoder().encode("m4aProtocol")
+        new TextEncoder().encode("processedClaimStats")
       ],
       program.programId
     )
-    return m4aProtocolPDA
-  }
-
-  function getprocessorStatsPDA()
-  {
-    const [processorStatsPDA] = anchor.web3.PublicKey.findProgramAddressSync
-    (
-      [
-        new TextEncoder().encode("processorStats")
-      ],
-      program.programId
-    )
-    return processorStatsPDA
+    return processedClaimStats
   }
 
   function getPatientPDA(submitterAddress: anchor.web3.PublicKey, patientIndex: number)
@@ -1543,19 +1592,6 @@ describe("M4A_Protocol", () => {
     return processorPDA
   }
 
-  function getClaimPDA(submitterAddress: anchor.web3.PublicKey )
-  {
-    const [claimPDA] = anchor.web3.PublicKey.findProgramAddressSync
-    (
-      [
-        new TextEncoder().encode("claim"),
-        submitterAddress.toBuffer()
-      ],
-      program.programId
-    )
-    return claimPDA
-  }
-
   function getClaimQueuePDA()
   {
     const [claimQueuePDA] = anchor.web3.PublicKey.findProgramAddressSync
@@ -1566,58 +1602,6 @@ describe("M4A_Protocol", () => {
       program.programId
     )
     return claimQueuePDA
-  }
-
-  function getClaimHistoryPDA()
-  {
-    const [claimHistoryPDA] = anchor.web3.PublicKey.findProgramAddressSync
-    (
-      [
-        utf8.encode("claimHistory"),
-      ],
-      program.programId
-    )
-    return claimHistoryPDA
-  }
-
-  function getClaimHistoryChunkPDA(chunkId: number)
-  {
-    const [claimHistoryChunkPDA] = anchor.web3.PublicKey.findProgramAddressSync
-    (
-      [
-        utf8.encode("claimHistoryChunk"),
-        new anchor.BN(chunkId).toBuffer('le', 4)
-      ],
-      program.programId
-    )
-    return claimHistoryChunkPDA
-  }
-
-  function getProcessedClaimPDA(processedClaimIndex: number)
-  {
-    const [claimHistoryChunkPDA] = anchor.web3.PublicKey.findProgramAddressSync
-    (
-      [
-        utf8.encode("processedClaim"),
-        new anchor.web3.PublicKey("93AWVuZKVhNQ4Uky3oFFwNewTgMs6T4aenZ4efom4gUw").toBuffer(),
-        new anchor.BN(processedClaimIndex).toBuffer('le', 4)
-      ],
-      program.programId
-    )
-    return claimHistoryChunkPDA
-  }
-
-  function getInsuranceCompanyPDA(index: number)
-  {
-    const [insuranceCompanyPDA] = anchor.web3.PublicKey.findProgramAddressSync
-    (
-      [
-        utf8.encode("insuranceCompany"),
-        new anchor.BN(index).toBuffer('le', 4)
-      ],
-      program.programId
-    )
-    return insuranceCompanyPDA
   }
 
   const chunk = (arr: any[], size: number) => Array.from
