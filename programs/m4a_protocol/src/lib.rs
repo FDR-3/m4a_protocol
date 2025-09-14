@@ -4,7 +4,7 @@ use anchor_spl::token::{self, Token, TokenAccount};
 use core::mem::size_of;
 use solana_security_txt::security_txt;
 
-declare_id!("H21iNtQzmY7gEyXuRXCSF2aq2QQPEkv1XcMzHhds15vx");
+declare_id!("FRd6LzSdqFUvJ2FVCrjyJqnCSLZu4v3NsLKH958ricM5");
 
 #[cfg(not(feature = "no-entrypoint"))] // Ensure it's not included when compiled as a library
 security_txt!
@@ -1112,8 +1112,8 @@ pub mod m_4_a_protocol
         //Only create 1 patient record per claim
         require!(claim.is_patient_record_created == false, InvalidOperationError::RecordAlreadyCreated);
 
-        let processor_stats = &mut ctx.accounts.processor_stats;
-        processor_stats.created_patient_record_count += 1;
+        let patient_records_stats = &mut ctx.accounts.patient_records_stats;
+        patient_records_stats.created_patient_record_count += 1;
         
         let patient = &mut ctx.accounts.patient;
         let patient_record = &mut ctx.accounts.patient_record;
@@ -1169,8 +1169,8 @@ pub mod m_4_a_protocol
         //Only create 1 insurance company record per claim
         require!(claim.is_insurance_company_record_created == false, InvalidOperationError::RecordAlreadyCreated);
 
-        let processor_stats = &mut ctx.accounts.processor_stats;
-        processor_stats.created_hospital_and_insurance_company_records_count += 1;
+        let hospital_and_insurance_record_stats = &mut ctx.accounts.hospital_and_insurance_record_stats;
+        hospital_and_insurance_record_stats.created_hospital_and_insurance_company_records_count += 1;
 
         let patient_record = &mut ctx.accounts.patient_record;
         patient_record.patient_record_only = false;
@@ -1595,11 +1595,11 @@ pub mod m_4_a_protocol
         require_keys_eq!(processor.submitter_address_of_claim_being_processed.key(), claim.submitter_address.key(), AuthorizationError::NotTheProcessor);
 
         let processed_claim_stats = &mut ctx.accounts.processed_claim_stats;
-        let processor_stats = &mut ctx.accounts.processor_stats;
+        let patient_records_stats = &mut ctx.accounts.patient_records_stats;
 
         processed_claim_stats.processed_claim_count += 1;
         processed_claim_stats.denied_claim_count += 1;
-        processor_stats.created_patient_record_count += 1;
+        patient_records_stats.created_patient_record_count += 1;
 
         //Only create 1 patient record per claim
         require!(claim.is_patient_record_created == false, InvalidOperationError::RecordAlreadyCreated);
@@ -2032,7 +2032,7 @@ pub mod m_4_a_protocol
         require!((processed_claim.status == Status::Denied as u8) || (processed_claim.status == Status::Appealed as u8), InvalidOperationError::ClaimNotDeniedOrAppealed);
 
         let processed_claim_stats = &mut ctx.accounts.processed_claim_stats;
-        let processor_stats = &mut ctx.accounts.processor_stats;
+        let hospital_and_insurance_record_stats = &mut ctx.accounts.hospital_and_insurance_record_stats;
         let submitter = &mut ctx.accounts.submitter;
         let patient = &mut ctx.accounts.patient;
         let processor = &mut ctx.accounts.processor;
@@ -2044,7 +2044,7 @@ pub mod m_4_a_protocol
         processed_claim_stats.undenied_claim_count += 1;
         processed_claim_stats.approved_claim_count += 1;
         processed_claim_stats.denied_claim_count -= 1;
-        processor_stats.created_hospital_and_insurance_company_records_count += 1;
+        hospital_and_insurance_record_stats.created_hospital_and_insurance_company_records_count += 1;
         submitter.undenied_claim_count += 1;
         submitter.approved_claim_count += 1;
         submitter.denied_claim_count -= 1;
@@ -2522,6 +2522,22 @@ pub struct InitializeProtocolStats<'info>
         seeds = [b"m4aProtocolCEO".as_ref()],
         bump)]
     pub ceo: Account<'info, M4AProtocolCEO>,
+
+    #[account(
+        init, 
+        payer = signer,
+        seeds = [b"patientRecordsStats".as_ref()],
+        bump,
+        space = size_of::<PatientRecordStats>() + 8)]
+    pub patient_records_stats: Account<'info, PatientRecordStats>,
+
+    #[account(
+        init, 
+        payer = signer,
+        seeds = [b"hospitalAndInsuranceRecordStats".as_ref()],
+        bump,
+        space = size_of::<HospitalAndInsuranceRecordStats>() + 8)]
+    pub hospital_and_insurance_record_stats: Account<'info, HospitalAndInsuranceRecordStats>,
 
     #[account(
         init, 
@@ -3190,9 +3206,9 @@ pub struct CreatePatientRecord<'info>
 {
     #[account(
         mut, 
-        seeds = [b"processorStats".as_ref()],
+        seeds = [b"patientRecordsStats".as_ref()],
         bump)]
-    pub processor_stats: Account<'info, ProcessorStats>,
+    pub patient_records_stats: Account<'info, PatientRecordStats>,
 
     #[account(
         mut, 
@@ -3231,9 +3247,9 @@ pub struct CreateHospitalAndInsuranceCompanyRecords<'info>
 {
     #[account(
         mut, 
-        seeds = [b"processorStats".as_ref()],
+        seeds = [b"hospitalAndInsuranceRecordStats".as_ref()],
         bump)]
-    pub processor_stats: Account<'info, ProcessorStats>,
+    pub hospital_and_insurance_record_stats: Account<'info, HospitalAndInsuranceRecordStats>,
 
     #[account(
         mut, 
@@ -3470,9 +3486,9 @@ pub struct CreatePatientRecordAndDenyClaim<'info>
 
     #[account(
         mut, 
-        seeds = [b"processorStats".as_ref()],
+        seeds = [b"patientRecordsStats".as_ref()],
         bump)]
-    pub processor_stats: Account<'info, ProcessorStats>,
+    pub patient_records_stats: Account<'info, PatientRecordStats>,
 
     #[account(
         mut, 
@@ -4010,10 +4026,10 @@ pub struct UndenyClaimAndCreateHospitalAndInsuranceCompanyRecords<'info>
     pub processed_claim_stats: Account<'info, ProcessedClaimStats>,
 
     #[account(
-        mut,
-        seeds = [b"processorStats".as_ref()],
+        mut, 
+        seeds = [b"hospitalAndInsuranceRecordStats".as_ref()],
         bump)]
-    pub processor_stats: Account<'info, ProcessorStats>,
+    pub hospital_and_insurance_record_stats: Account<'info, HospitalAndInsuranceRecordStats>,
 
     #[account(
         mut, 
@@ -4462,9 +4478,19 @@ pub struct ProcessorStats
     pub processor_active_account_total: u64,
     pub processor_super_admin_account_total: u64,
     pub set_or_unset_processor_on_claim_count: u64,  //Helps listners to update tables
-    pub edited_processor_count: u32,
-    pub created_patient_record_count: u64,
-    pub created_hospital_and_insurance_company_records_count: u64
+    pub edited_processor_count: u32
+}
+
+#[account]
+pub struct PatientRecordStats
+{
+    pub created_patient_record_count: u64 //Helps listners to update tables
+}
+
+#[account]
+pub struct HospitalAndInsuranceRecordStats
+{
+    pub created_hospital_and_insurance_company_records_count: u64 //Helps listners to update tables
 }
 
 #[account]
