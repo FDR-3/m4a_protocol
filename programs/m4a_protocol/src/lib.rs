@@ -7,7 +7,8 @@ use solana_security_txt::security_txt;
 declare_id!("H21iNtQzmY7gEyXuRXCSF2aq2QQPEkv1XcMzHhds15vx");
 
 #[cfg(not(feature = "no-entrypoint"))] // Ensure it's not included when compiled as a library
-security_txt! {
+security_txt!
+{
     name: "M4A Protocol",
     project_url: "https://m4a.io",
     contacts: "email fdr3@m4a.io",
@@ -17,12 +18,12 @@ security_txt! {
 }
 
 const SYSTEM_PROGRAM_ADDRESS: Pubkey = pubkey!("11111111111111111111111111111111");
-const INITIAL_CEO_ADDRESS: Pubkey = pubkey!("Fdqu1muWocA5ms8VmTrUxRxxmSattrmpNraQ7RpPvzZg");
-//const INITIAL_CEO_ADDRESS: Pubkey = pubkey!("DSLn1ofuSWLbakQWhPUenSBHegwkBBTUwx8ZY4Wfoxm");
+//const INITIAL_CEO_ADDRESS: Pubkey = pubkey!("Fdqu1muWocA5ms8VmTrUxRxxmSattrmpNraQ7RpPvzZg");
+const INITIAL_CEO_ADDRESS: Pubkey = pubkey!("DSLn1ofuSWLbakQWhPUenSBHegwkBBTUwx8ZY4Wfoxm");
 
 // Define the constant public key for the USDC fee recipient
-const INITIAL_TREASURER_ADDRESS: Pubkey = pubkey!("9BRgCdmwyP5wGVTvKAUDjSwucpqGncurVa35DjaWqSsC");
-//const INITIAL_TREASURER_ADDRESS: Pubkey = pubkey!("DSLn1ofuSWLbakQWhPUenSBHegwkBBTUwx8ZY4Wfoxm");
+//const INITIAL_TREASURER_ADDRESS: Pubkey = pubkey!("9BRgCdmwyP5wGVTvKAUDjSwucpqGncurVa35DjaWqSsC");
+const INITIAL_TREASURER_ADDRESS: Pubkey = pubkey!("DSLn1ofuSWLbakQWhPUenSBHegwkBBTUwx8ZY4Wfoxm");
 
 const FEE_4CENTS: f64 = 0.04;
 
@@ -730,6 +731,8 @@ pub mod m_4_a_protocol
         m4a_protocol.state_account_total += 1;
 
         state.id = m4a_protocol.state_account_total;
+        state.country_index = country_index;
+        state.state_index = state_index;
         
         msg!("Initialized State #{}: ", state.id);
         msg!("Country Index: {}", country_index);
@@ -3230,7 +3233,7 @@ pub struct CreateHospitalAndInsuranceCompanyRecords<'info>
         mut, 
         seeds = [b"processorStats".as_ref()],
         bump)]
-    pub processor_stats: Box<Account<'info, ProcessorStats>>,
+    pub processor_stats: Account<'info, ProcessorStats>,
 
     #[account(
         mut, 
@@ -3242,7 +3245,7 @@ pub struct CreateHospitalAndInsuranceCompanyRecords<'info>
         mut,
         seeds = [b"claim".as_ref(), submitter_address.key().as_ref()], 
         bump)]
-    pub claim: Box<Account<'info, Claim>>,
+    pub claim: Account<'info, Claim>,
 
     #[account(
         mut, 
@@ -3272,7 +3275,7 @@ pub struct CreateHospitalAndInsuranceCompanyRecords<'info>
         mut, 
         seeds = [b"insuranceCompany".as_ref(), claim.insurance_company_index.to_le_bytes().as_ref()],
         bump)]
-    pub insurance_company: Box<Account<'info, InsuranceCompany>>,
+    pub insurance_company: Account<'info, InsuranceCompany>,
 
     #[account(
         init, 
@@ -3301,13 +3304,13 @@ pub struct ApproveClaim<'info>
         mut, 
         seeds = [b"processedClaimStats".as_ref()],
         bump)]
-    pub processed_claim_stats: Box<Account<'info, ProcessedClaimStats>>,
+    pub processed_claim_stats: Account<'info, ProcessedClaimStats>,
 
     #[account(
         mut, 
         seeds = [b"submitter".as_ref(), claim.submitter_address.key().as_ref()],
         bump)]
-    pub submitter: Box<Account<'info, SubmitterAccount>>,
+    pub submitter: Account<'info, SubmitterAccount>,
 
     #[account(
         mut, 
@@ -3337,19 +3340,19 @@ pub struct ApproveClaim<'info>
         mut, 
         seeds = [b"hospitalRecord".as_ref(), claim.country_index.to_le_bytes().as_ref(), claim.state_index.to_le_bytes().as_ref(), claim.hospital_index.to_le_bytes().as_ref(), claim.hospital_record_index.to_le_bytes().as_ref()], 
         bump)]
-    pub hospital_record: Box<Account<'info, HospitalRecord>>,  
+    pub hospital_record: Account<'info, HospitalRecord>,  
 
     #[account(
         mut,
         seeds = [b"insuranceCompany".as_ref(), claim.insurance_company_index.to_le_bytes().as_ref()], 
         bump)]
-    pub insurance_company: Box<Account<'info, InsuranceCompany>>,  
+    pub insurance_company: Account<'info, InsuranceCompany>,  
 
     #[account(
         mut, 
         seeds = [b"insuranceCompanyRecord".as_ref(), claim.insurance_company_index.to_le_bytes().as_ref(), claim.insurance_company_record_index.to_le_bytes().as_ref()], 
         bump)]
-    pub insurance_company_record: Box<Account<'info, InsuranceCompanyRecord>>,  
+    pub insurance_company_record: Account<'info, InsuranceCompanyRecord>,  
     
     #[account(
         init, 
@@ -3368,7 +3371,7 @@ pub struct ApproveClaim<'info>
         close = signer,
         seeds = [b"claim".as_ref(), _submitter_address.key().as_ref()], 
         bump)]
-    pub claim: Box<Account<'info, Claim>>, 
+    pub claim: Box<Account<'info, Claim>>
 }
 
 #[derive(Accounts)]
@@ -3385,7 +3388,7 @@ pub struct ApproveClaimWithEdits<'info>
         mut, 
         seeds = [b"processedClaimStats".as_ref()],
         bump)]
-    pub processed_claim_stats: Box<Account<'info, ProcessedClaimStats>>,
+    pub processed_claim_stats: Account<'info, ProcessedClaimStats>,
 
     #[account(
         mut, 
@@ -3403,14 +3406,7 @@ pub struct ApproveClaimWithEdits<'info>
         mut, 
         seeds = [b"processor".as_ref(), signer.key().as_ref()],
         bump)]
-    pub processor: Box<Account<'info, ProcessorAccount>>,
-
-    #[account(
-        mut,
-        close = signer,
-        seeds = [b"claim".as_ref(), submitter_address.key().as_ref()], 
-        bump)]
-    pub claim: Box<Account<'info, Claim>>,     
+    pub processor: Box<Account<'info, ProcessorAccount>>, 
 
     #[account(
         mut, 
@@ -3428,19 +3424,19 @@ pub struct ApproveClaimWithEdits<'info>
         mut, 
         seeds = [b"hospitalRecord".as_ref(), claim.country_index.to_le_bytes().as_ref(), claim.state_index.to_le_bytes().as_ref(), claim.hospital_index.to_le_bytes().as_ref(), claim.hospital_record_index.to_le_bytes().as_ref()], 
         bump)]
-    pub hospital_record: Box<Account<'info, HospitalRecord>>,  
+    pub hospital_record: Account<'info, HospitalRecord>,  
 
     #[account(
         mut,
         seeds = [b"insuranceCompany".as_ref(), claim.insurance_company_index.to_le_bytes().as_ref()], 
         bump)]
-    pub insurance_company: Box<Account<'info, InsuranceCompany>>,  
+    pub insurance_company: Account<'info, InsuranceCompany>,  
 
     #[account(
         mut, 
         seeds = [b"insuranceCompanyRecord".as_ref(), claim.insurance_company_index.to_le_bytes().as_ref(), claim.insurance_company_record_index.to_le_bytes().as_ref()], 
         bump)]
-    pub insurance_company_record: Box<Account<'info, InsuranceCompanyRecord>>,
+    pub insurance_company_record: Account<'info, InsuranceCompanyRecord>,
     
     #[account(
         init, 
@@ -3452,7 +3448,14 @@ pub struct ApproveClaimWithEdits<'info>
 
     #[account(mut)]
     pub signer: Signer<'info>,
-    pub system_program: Program<'info, System>
+    pub system_program: Program<'info, System>,
+
+    #[account(
+        mut,
+        close = signer,
+        seeds = [b"claim".as_ref(), submitter_address.key().as_ref()], 
+        bump)]
+    pub claim: Box<Account<'info, Claim>>
 }
 
 #[derive(Accounts)]
@@ -3463,19 +3466,19 @@ pub struct CreatePatientRecordAndDenyClaim<'info>
         mut,
         seeds = [b"claimQueue".as_ref()],
         bump)]
-    pub claim_queue: Box<Account<'info, ClaimQueue>>,
+    pub claim_queue: Account<'info, ClaimQueue>,
 
     #[account(
         mut, 
         seeds = [b"processorStats".as_ref()],
         bump)]
-    pub processor_stats: Box<Account<'info, ProcessorStats>>,
+    pub processor_stats: Account<'info, ProcessorStats>,
 
     #[account(
         mut, 
         seeds = [b"processedClaimStats".as_ref()],
         bump)]
-    pub processed_claim_stats: Box<Account<'info, ProcessedClaimStats>>,
+    pub processed_claim_stats: Account<'info, ProcessedClaimStats>,
 
     #[account(
         mut, 
@@ -3493,7 +3496,7 @@ pub struct CreatePatientRecordAndDenyClaim<'info>
         mut, 
         seeds = [b"processor".as_ref(), signer.key().as_ref()],
         bump)]
-    pub processor: Box<Account<'info, ProcessorAccount>>,
+    pub processor: Account<'info, ProcessorAccount>,
 
     #[account(
         init, 
@@ -3520,7 +3523,7 @@ pub struct CreatePatientRecordAndDenyClaim<'info>
         close = signer,
         seeds = [b"claim".as_ref(), submitter_address.key().as_ref()], 
         bump)]
-    pub claim: Box<Account<'info, Claim>>
+    pub claim: Account<'info, Claim>
 }
 
 #[derive(Accounts)]
@@ -3633,13 +3636,13 @@ pub struct DenyClaimWithAllRecords<'info>
         mut, 
         seeds = [b"processorStats".as_ref()],
         bump)]
-    pub processor_stats: Box<Account<'info, ProcessorStats>>,
+    pub processor_stats: Account<'info, ProcessorStats>,
 
     #[account(
         mut, 
         seeds = [b"processedClaimStats".as_ref()],
         bump)]
-    pub processed_claim_stats: Box<Account<'info, ProcessedClaimStats>>,
+    pub processed_claim_stats: Account<'info, ProcessedClaimStats>,
 
     #[account(
         mut, 
@@ -3669,13 +3672,13 @@ pub struct DenyClaimWithAllRecords<'info>
         mut, 
         seeds = [b"hospital".as_ref(), claim.country_index.to_le_bytes().as_ref(), claim.state_index.to_le_bytes().as_ref(), claim.hospital_index.to_le_bytes().as_ref()],
         bump)]
-    pub hospital: Box<Account<'info, Hospital>>,
+    pub hospital: Account<'info, Hospital>,
 
     #[account(
         mut, 
         seeds = [b"hospitalRecord".as_ref(), claim.country_index.to_le_bytes().as_ref(), claim.state_index.to_le_bytes().as_ref(), claim.hospital_index.to_le_bytes().as_ref(), claim.hospital_record_index.to_le_bytes().as_ref()], 
         bump)]
-    pub hospital_record: Box<Account<'info, HospitalRecord>>,  
+    pub hospital_record: Account<'info, HospitalRecord>,  
 
     #[account(
         mut,
@@ -3706,7 +3709,7 @@ pub struct DenyClaimWithAllRecords<'info>
         close = signer,
         seeds = [b"claim".as_ref(), submitter_address.key().as_ref()], 
         bump)]
-    pub claim: Box<Account<'info, Claim>>, 
+    pub claim: Box<Account<'info, Claim>>
 }
 
 #[derive(Accounts)]
@@ -3998,25 +4001,25 @@ pub struct UndenyClaimAndCreateHospitalAndInsuranceCompanyRecords<'info>
     #[account(
         seeds = [b"m4aProtocolCEO".as_ref()],
         bump)]
-    pub ceo: Box<Account<'info, M4AProtocolCEO>>,
+    pub ceo: Account<'info, M4AProtocolCEO>,
 
     #[account(
         mut,
         seeds = [b"processedClaimStats".as_ref()],
         bump)]
-    pub processed_claim_stats: Box<Account<'info, ProcessedClaimStats>>,
+    pub processed_claim_stats: Account<'info, ProcessedClaimStats>,
 
     #[account(
         mut,
         seeds = [b"processorStats".as_ref()],
         bump)]
-    pub processor_stats: Box<Account<'info, ProcessorStats>>,
+    pub processor_stats: Account<'info, ProcessorStats>,
 
     #[account(
         mut, 
         seeds = [b"submitter".as_ref(), processed_claim.submitter_address.key().as_ref()],
         bump)]
-    pub submitter: Box<Account<'info, SubmitterAccount>>,
+    pub submitter: Account<'info, SubmitterAccount>,
 
     #[account(
         mut, 
@@ -4028,19 +4031,19 @@ pub struct UndenyClaimAndCreateHospitalAndInsuranceCompanyRecords<'info>
         mut, 
         seeds = [b"patientRecord".as_ref(), processed_claim.submitter_address.key().as_ref(), processed_claim.patient_index.to_le_bytes().as_ref(), processed_claim.patient_record_index.to_le_bytes().as_ref()], 
         bump)]
-    pub patient_record: Box<Account<'info, PatientRecord>>,
+    pub patient_record: Account<'info, PatientRecord>,
 
     #[account(
         mut, 
         seeds = [b"processor".as_ref(), signer.key().as_ref()],
         bump)]
-    pub processor: Box<Account<'info, ProcessorAccount>>,
+    pub processor: Account<'info, ProcessorAccount>,
 
     #[account(
         mut, 
         seeds = [b"hospital".as_ref(), processed_claim.country_index.to_le_bytes().as_ref(), processed_claim.state_index.to_le_bytes().as_ref(), processed_claim.hospital_index.to_le_bytes().as_ref()],
         bump)]
-    pub hospital: Box<Account<'info, Hospital>>,
+    pub hospital: Account<'info, Hospital>,
 
     #[account(
         init, 
@@ -4058,7 +4061,7 @@ pub struct UndenyClaimAndCreateHospitalAndInsuranceCompanyRecords<'info>
         mut,
         seeds = [b"insuranceCompany".as_ref(), processed_claim.insurance_company_index.to_le_bytes().as_ref()], 
         bump)]
-    pub insurance_company: Box<Account<'info, InsuranceCompany>>,  
+    pub insurance_company: Account<'info, InsuranceCompany>,  
 
     #[account(
         init, 
@@ -4092,7 +4095,7 @@ pub struct UndenyClaimWithAllRecords<'info>
         mut,
         seeds = [b"processedClaimStats".as_ref()],
         bump)]
-    pub processed_claim_stats: Box<Account<'info, ProcessedClaimStats>>,
+    pub processed_claim_stats: Account<'info, ProcessedClaimStats>,
 
     #[account(
         mut,
@@ -4220,12 +4223,6 @@ pub struct EditProcessedClaimAndAllRecords<'info>
 
     #[account(
         mut, 
-        seeds = [b"processedClaim".as_ref(), processor_address.key().as_ref(), processor_count_index.to_le_bytes().as_ref()], 
-        bump)]
-    pub processed_claim: Box<Account<'info, ProcessedClaim>>,  
-
-    #[account(
-        mut, 
         seeds = [b"submitter".as_ref(), processed_claim.submitter_address.key().as_ref()],
         bump)]
     pub submitter: Account<'info, SubmitterAccount>,
@@ -4271,6 +4268,12 @@ pub struct EditProcessedClaimAndAllRecords<'info>
         seeds = [b"insuranceCompanyRecord".as_ref(), processed_claim.insurance_company_index.to_le_bytes().as_ref(), processed_claim.insurance_company_record_index.to_le_bytes().as_ref()], 
         bump)]
     pub insurance_company_record: Account<'info, InsuranceCompanyRecord>,
+
+    #[account(
+        mut, 
+        seeds = [b"processedClaim".as_ref(), processor_address.key().as_ref(), processor_count_index.to_le_bytes().as_ref()], 
+        bump)]
+    pub processed_claim: Box<Account<'info, ProcessedClaim>>,  
 
     #[account(mut)]
     pub signer: Signer<'info>,
@@ -4332,7 +4335,7 @@ pub struct RevokeApproval<'info>
         mut,
         seeds = [b"insuranceCompany".as_ref(), processed_claim.insurance_company_index.to_le_bytes().as_ref()], 
         bump)]
-    pub insurance_company: Box<Account<'info, InsuranceCompany>>,  
+    pub insurance_company: Account<'info, InsuranceCompany>,  
 
     #[account(
         mut, 
@@ -4482,6 +4485,8 @@ pub struct ProcessedClaimStats
 pub struct StateAccount
 {
     pub id: u32,
+    pub country_index: u16,
+    pub state_index: u32,
     pub hospital_count: u32
 }
 

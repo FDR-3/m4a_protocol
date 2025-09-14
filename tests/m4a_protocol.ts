@@ -47,7 +47,7 @@ describe("M4A_Protocol", () => {
   const keypairData = JSON.parse(fs.readFileSync(keypairPath, 'utf8'));
   const testingWalletKeypair = Keypair.fromSecretKey(Uint8Array.from(keypairData))
 
-  it("Creates And Mints USDC For Fees", async () => 
+  it("Creates Token Mint For Fees", async () => 
   {
     //Create a new USDC Mint for testing
     usdcMint = await Token.createMint
