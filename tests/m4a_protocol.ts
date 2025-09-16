@@ -332,20 +332,13 @@ describe("M4A_Protocol", () => {
       .signers([newWallet])
       .rpc()
 
-      var processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
-      var claimQueue = await program.account.claimQueue.fetch(getClaimQueuePDA())
-      
-      console.log("Processed Claim Count: ", processedClaimStats.processedClaimCount.toNumber())
-      console.log("MaxDeniedClaim Count: ", claimQueue.maxDeniedClaimCount.toNumber())
+      var claimStats = await program.account.claimStats.fetch(getClaimStatsPDA())
+      console.log("MaxDeniedClaim Count: ", claimStats.maxDeniedClaimCount.toNumber())
 
       await program.methods.maxDenyPendingClaim(newWallet.publicKey).rpc()
-      var processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
 
-      //const derp = await program.account.processedClaim.all()
-      //console.log("PDA Actual: ", derp[i-1])
-      //console.log("PDA Helper: ", getProcessedClaimPDA(i-1))
-
-      console.log("MaxDeniedClaim Count: ", claimQueue.maxDeniedClaimCount.toNumber())
+      claimStats = await program.account.claimStats.fetch(getClaimStatsPDA())
+      console.log("MaxDeniedClaim Count: ", claimStats.maxDeniedClaimCount.toNumber())
     }
   })
 
@@ -402,20 +395,13 @@ describe("M4A_Protocol", () => {
 
         await program.methods.assignClaimToProcessor(newWallet.publicKey).rpc()
   
-        var processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
-        var claimQueue = await program.account.claimQueue.fetch(getClaimQueuePDA())
-        
-        console.log("Processed Claim Count: ", processedClaimStats.processedClaimCount.toNumber())
-        console.log("MaxDeniedClaim Count: ", claimQueue.maxDeniedClaimCount.toNumber())
+        var claimStats = await program.account.claimStats.fetch(getClaimStatsPDA())
+        console.log("MaxDeniedClaim Count: ", claimStats.maxDeniedClaimCount.toNumber())
   
         await program.methods.maxDenyInProgressClaim(newWallet.publicKey).rpc()
-        var processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
-  
-        //const derp = await program.account.processedClaim.all()
-        //console.log("PDA Actual: ", derp[i-1])
-        //console.log("PDA Helper: ", getProcessedClaimPDA(i-1))
-  
-        console.log("MaxDeniedClaim Count: ", claimQueue.maxDeniedClaimCount.toNumber())
+
+        var claimStats = await program.account.claimStats.fetch(getClaimStatsPDA())
+        console.log("MaxDeniedClaim Count: ", claimStats.maxDeniedClaimCount.toNumber())
       }
     })
 
@@ -1601,6 +1587,18 @@ describe("M4A_Protocol", () => {
       program.programId
     )
     return claimQueuePDA
+  }
+
+  function getClaimStatsPDA()
+  {
+    const [claimStatsPDA] = anchor.web3.PublicKey.findProgramAddressSync
+    (
+      [
+        utf8.encode("claimStats"),
+      ],
+      program.programId
+    )
+    return claimStatsPDA
   }
 
   const chunk = (arr: any[], size: number) => Array.from

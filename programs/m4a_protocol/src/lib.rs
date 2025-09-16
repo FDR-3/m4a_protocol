@@ -4,9 +4,9 @@ use anchor_spl::token::{self, Token, TokenAccount};
 use core::mem::size_of;
 use solana_security_txt::security_txt;
 
-declare_id!("FRd6LzSdqFUvJ2FVCrjyJqnCSLZu4v3NsLKH958ricM5");
+declare_id!("EmKwXWsa1GeEBqYmmUMADWrVRy5W64FSV9yb2EkeKZ4t");
 
-#[cfg(not(feature = "no-entrypoint"))] // Ensure it's not included when compiled as a library
+#[cfg(not(feature = "no-entrypoint"))] //Ensure it's not included when compiled as a library
 security_txt!
 {
     name: "M4A Protocol",
@@ -21,7 +21,7 @@ const SYSTEM_PROGRAM_ADDRESS: Pubkey = pubkey!("11111111111111111111111111111111
 const INITIAL_CEO_ADDRESS: Pubkey = pubkey!("Fdqu1muWocA5ms8VmTrUxRxxmSattrmpNraQ7RpPvzZg");
 //const INITIAL_CEO_ADDRESS: Pubkey = pubkey!("DSLn1ofuSWLbakQWhPUenSBHegwkBBTUwx8ZY4Wfoxm");
 
-// Define the constant public key for the USDC fee recipient
+//Define the constant public key for the USDC fee recipient
 const INITIAL_TREASURER_ADDRESS: Pubkey = pubkey!("9BRgCdmwyP5wGVTvKAUDjSwucpqGncurVa35DjaWqSsC");
 //const INITIAL_TREASURER_ADDRESS: Pubkey = pubkey!("DSLn1ofuSWLbakQWhPUenSBHegwkBBTUwx8ZY4Wfoxm");
 
@@ -506,12 +506,13 @@ pub mod m_4_a_protocol
         insurance_company_name: String
     ) -> Result<()> 
     {
-        let claim_queue = &mut ctx.accounts.claim_queue;
+        let claim_queue = &ctx.accounts.claim_queue;
         //Claim Queue is currently disabled
         require!(claim_queue.enabled == true, InvalidOperationError::ClaimQueueDisabled);
 
+        let claim_stats = &mut ctx.accounts.claim_stats;
         //Claim Queue is full
-        require!(claim_queue.current_claim_queue_count + 1 <= claim_queue.queue_size_limit, InvalidOperationError::TooManyClaimsInQueue);
+        require!(claim_stats.current_claim_queue_count + 1 <= claim_queue.queue_size_limit, InvalidOperationError::TooManyClaimsInQueue);
 
         //Hospital type must be valid
         require!((hospital_type == HospitalType::General as u8) ||
@@ -544,12 +545,12 @@ pub mod m_4_a_protocol
         let patient = &mut ctx.accounts.patient;
         let claim = &mut ctx.accounts.claim;
 
-        claim_queue.submitted_claim_count += 1;
-        claim_queue.current_claim_queue_count += 1;
+        claim_stats.submitted_claim_count += 1;
+        claim_stats.current_claim_queue_count += 1;
         patient.submitted_claim_count += 1;
         submitter.submitted_claim_count += 1;
         
-        claim.id = claim_queue.submitted_claim_count;
+        claim.id = claim_stats.submitted_claim_count;
         claim.submitter_address = ctx.accounts.signer.key();
         claim.patient_index = patient_index;
         claim.country_index = country_index.clone();
@@ -600,7 +601,7 @@ pub mod m_4_a_protocol
 
     pub fn assign_claim_to_processor(ctx: Context<AssignClaimToProcessor>, submitter_address: Pubkey) -> Result<()> 
     {
-        let processor_stats = &mut ctx.accounts.processor_stats;
+        let claim_and_processor_stats = &mut ctx.accounts.claim_and_processor_stats;
         let processor = &mut ctx.accounts.processor;
         let claim = &mut ctx.accounts.claim;
         
@@ -617,7 +618,7 @@ pub mod m_4_a_protocol
         processor.submitter_address_of_claim_being_processed = submitter_address.key();
         claim.processor_address = ctx.accounts.signer.key();
         claim.status = Status::Processing as u8;
-        processor_stats.set_or_unset_processor_on_claim_count += 1;
+        claim_and_processor_stats.set_or_unset_processor_on_claim_count += 1;
 
         msg!("Claim Assigned To Processor Address: ");
         msg!("{}", ctx.accounts.signer.key());
@@ -628,7 +629,7 @@ pub mod m_4_a_protocol
     pub fn reassign_claim_to_new_processor(ctx: Context<ReassignClaimToNewProcessor>, submitter_address: Pubkey) -> Result<()> 
     {
         let ceo = &mut ctx.accounts.ceo;
-        let processor_stats = &mut ctx.accounts.processor_stats;
+        let claim_and_processor_stats = &mut ctx.accounts.claim_and_processor_stats;
         let new_processor = &mut ctx.accounts.new_processor;
         let old_processor = &mut ctx.accounts.old_processor;
         let claim = &mut ctx.accounts.claim;
@@ -645,7 +646,7 @@ pub mod m_4_a_protocol
 
         new_processor.is_processing_claim = true;
         new_processor.submitter_address_of_claim_being_processed = submitter_address.key();
-        processor_stats.set_or_unset_processor_on_claim_count += 1;
+        claim_and_processor_stats.set_or_unset_processor_on_claim_count += 1;
 
         //Check if processor is reassigning themself to the same claim for some weird ass reason, do nothing else if so
         if new_processor.address != claim.processor_address
@@ -667,7 +668,7 @@ pub mod m_4_a_protocol
     pub fn unassign_claim_from_processor(ctx: Context<UnassignClaimFromProcessor>, _submitter_address: Pubkey) -> Result<()> 
     {
         let ceo = &mut ctx.accounts.ceo;
-        let processor_stats = &mut ctx.accounts.processor_stats;
+        let claim_and_processor_stats = &mut ctx.accounts.claim_and_processor_stats;
         let admin_processor = &mut ctx.accounts.admin_processor;
         let old_processor = &mut ctx.accounts.old_processor;
         let claim = &mut ctx.accounts.claim;
@@ -684,7 +685,7 @@ pub mod m_4_a_protocol
         claim.processor_address = SYSTEM_PROGRAM_ADDRESS;
         claim.status = Status::Pending as u8;
 
-        processor_stats.set_or_unset_processor_on_claim_count += 1;
+        claim_and_processor_stats.set_or_unset_processor_on_claim_count += 1;
 
         msg!("Claim id: {} Unassigned By: ", claim.id);
         msg!("{}", ctx.accounts.signer.key());
@@ -696,7 +697,7 @@ pub mod m_4_a_protocol
     pub fn set_processor_to_not_processing_claim_state(ctx: Context<SetProcessorToNotProcessingClaimState>, _processor_address: Pubkey) -> Result<()> 
     {
         let ceo = &mut ctx.accounts.ceo;
-        let processor_stats = &mut ctx.accounts.processor_stats;
+        let claim_and_processor_stats = &mut ctx.accounts.claim_and_processor_stats;
         let admin_processor = &mut ctx.accounts.admin_processor;
         let processor = &mut ctx.accounts.processor;
 
@@ -706,7 +707,7 @@ pub mod m_4_a_protocol
 
         processor.is_processing_claim = false;
         processor.submitter_address_of_claim_being_processed = SYSTEM_PROGRAM_ADDRESS;
-        processor_stats.set_or_unset_processor_on_claim_count += 1;
+        claim_and_processor_stats.set_or_unset_processor_on_claim_count += 1;
 
         msg!("Processor Set To Not Processign Claim State By: ");
         msg!("{}", ctx.accounts.signer.key());
@@ -1059,9 +1060,9 @@ pub mod m_4_a_protocol
         //Can't set different hospital index after hospital record has been created
         require!(claim.is_hospital_record_created == false, InvalidOperationError::RecordAlreadyCreated);
  
-        let claim_queue = &mut ctx.accounts.claim_queue;
+        let claim_stats = &mut ctx.accounts.claim_stats;
         
-        claim_queue.edited_claim_count += 1;
+        claim_stats.edited_claim_count += 1;
         claim.hospital_index = hospital_index as i32;
         
         msg!("Claim Hospital Index updated");
@@ -1087,9 +1088,9 @@ pub mod m_4_a_protocol
         //Can't set different insurance company index after insurance company record has been created
         require!(claim.is_insurance_company_record_created == false, InvalidOperationError::RecordAlreadyCreated);
 
-        let claim_queue = &mut ctx.accounts.claim_queue;
+        let claim_stats = &mut ctx.accounts.claim_stats;
         
-        claim_queue.edited_claim_count += 1;
+        claim_stats.edited_claim_count += 1;
         claim.insurance_company_index = insurance_company_index as i16;
         
         msg!("Claim Insurance Company Index updated");
@@ -1121,11 +1122,12 @@ pub mod m_4_a_protocol
         claim.patient_record_index = patient.record_count;
         claim.is_patient_record_created = true;
         patient.record_count += 1;
+        patient_record.submitter_address = claim.submitter_address;
+        patient_record.patient_index = claim.patient_index;
         patient_record.record_id = patient.record_count as u32;
         patient_record.claim_id = claim.id as u32;
         patient_record.status = Status::Processing as u8;
         patient_record.patient_record_only = true;
-        patient_record.submitter_address = claim.submitter_address;
         patient_record.processor_address = ctx.accounts.signer.key();
         patient_record.country_index = claim.country_index;
         patient_record.state_index = claim.state_index;
@@ -1136,8 +1138,6 @@ pub mod m_4_a_protocol
         patient_record.note = claim.note.clone();
         patient_record.submitted_time = claim.submitted_time;
         patient_record.insurance_company_index = claim.insurance_company_index as u16;
-
-        processor.created_patient_record_count += 1;
 
         msg!("Patient Record Created");
         msg!("Record ID: {}", patient.record_count);
@@ -1181,6 +1181,9 @@ pub mod m_4_a_protocol
         claim.hospital_record_index = hospital.record_count;
         claim.is_hospital_record_created = true;
         hospital.record_count += 1;
+        hospital_record.country_index = claim.country_index;
+        hospital_record.state_index = claim.state_index;
+        hospital_record.hospital_index = claim.hospital_index as u32;
         hospital_record.record_id = hospital.record_count;
         hospital_record.claim_id = claim.id;
         hospital_record.status = Status::Processing as u8;
@@ -1193,14 +1196,10 @@ pub mod m_4_a_protocol
         hospital_record.note = claim.note.clone();
         hospital_record.submitted_time = claim.submitted_time;
         hospital_record.insurance_company_index = claim.insurance_company_index  as u16;
-        
-        processor.created_hospital_record_count += 1;
 
         msg!("Hospital Record Created");
         msg!("Record ID: {}", hospital.record_count);
-        msg!("Claim ID: {}", hospital_record.claim_id);
         msg!("Hospital Index: {}", claim.hospital_index);
-        msg!("Claim Amount: ${:.2}", hospital_record.claim_amount as f64/100.00);
 
         let insurance_company = &mut ctx.accounts.insurance_company;
         let insurance_company_record = &mut ctx.accounts.insurance_company_record;
@@ -1208,6 +1207,7 @@ pub mod m_4_a_protocol
         claim.insurance_company_record_index = insurance_company.record_count;
         claim.is_insurance_company_record_created = true;
         insurance_company.record_count += 1;
+        insurance_company_record.insurance_company_index = claim.insurance_company_index  as u16;
         insurance_company_record.record_id = insurance_company.record_count;
         insurance_company_record.claim_id = claim.id;
         insurance_company_record.status = Status::Processing as u8;
@@ -1223,12 +1223,10 @@ pub mod m_4_a_protocol
         insurance_company_record.note = claim.note.clone();
         insurance_company_record.submitted_time = claim.submitted_time;
 
-        processor.created_insurance_company_record_count += 1;
-
         msg!("Insurance Company Record Created");
         msg!("Record ID: {}", insurance_company.record_count);
-        msg!("Claim ID: {}", insurance_company_record.claim_id);
         msg!("Insurance Company Index: {}", claim.insurance_company_index);
+        msg!("Claim ID: {}", insurance_company_record.claim_id);
         msg!("Claim Amount: ${:.2}", insurance_company_record.claim_amount as f64/100.00);
         
         Ok(())
@@ -1246,7 +1244,7 @@ pub mod m_4_a_protocol
         require_keys_eq!(processor.submitter_address_of_claim_being_processed.key(), claim.submitter_address.key(), AuthorizationError::NotTheProcessor);
 
         let processed_claim_stats = &mut ctx.accounts.processed_claim_stats;
-        let claim_queue = &mut ctx.accounts.claim_queue;
+        let claim_stats = &mut ctx.accounts.claim_stats;
         let submitter = &mut ctx.accounts.submitter;
         let patient = &mut ctx.accounts.patient;
         let hospital = &mut ctx.accounts.hospital;
@@ -1255,7 +1253,7 @@ pub mod m_4_a_protocol
         processed_claim_stats.processed_claim_count += 1;
         processed_claim_stats.approved_claim_count += 1;
         processed_claim_stats.approved_claim_amount += claim.claim_amount;
-        claim_queue.current_claim_queue_count -= 1;
+        claim_stats.current_claim_queue_count -= 1;
         submitter.approved_claim_count += 1;
         submitter.approved_claim_amount += claim.claim_amount;
         patient.approved_claim_count += 1;
@@ -1379,7 +1377,7 @@ pub mod m_4_a_protocol
         require!(insurance_company_name.len() <= MAX_INSURANCE_COMPANY_NAME_LENGTH, InvalidLengthError::InsuranceCompanyNameTooLong);
 
         let processed_claim_stats = &mut ctx.accounts.processed_claim_stats;
-        let claim_queue = &mut ctx.accounts.claim_queue;
+        let claim_stats = &mut ctx.accounts.claim_stats;
         let submitter = &mut ctx.accounts.submitter;
         let patient = &mut ctx.accounts.patient;
         let hospital = &mut ctx.accounts.hospital;
@@ -1389,7 +1387,7 @@ pub mod m_4_a_protocol
         processed_claim_stats.processed_claim_count += 1;
         processed_claim_stats.approved_claim_count += 1;
         processed_claim_stats.approved_claim_amount += claim_amount;
-        claim_queue.current_claim_queue_count -= 1;
+        claim_stats.current_claim_queue_count -= 1;
         submitter.approved_claim_count += 1;
         submitter.approved_claim_amount += claim_amount;
         patient.approved_claim_count += 1;
@@ -1513,19 +1511,19 @@ pub mod m_4_a_protocol
         //Can't max deny claim if insurance company record was created
         require!(claim.is_insurance_company_record_created == false, InvalidOperationError::RecordAlreadyCreated);
 
-        let claim_queue = &mut ctx.accounts.claim_queue; 
+        let claim_stats = &mut ctx.accounts.claim_stats; 
         let submitter = &mut ctx.accounts.submitter;
         let patient = &mut ctx.accounts.patient;
-        claim_queue.max_denied_claim_count += 1;
+        claim_stats.max_denied_claim_count += 1;
         submitter.max_denied_claim_count += 1;
         patient.max_denied_claim_count += 1;
         admin_processor.max_denied_claim_count += 1;
      
         
-        claim_queue.current_claim_queue_count -= 1;
+        claim_stats.current_claim_queue_count -= 1;
 
         msg!("New Max Pending Claim Denial");
-        msg!("Max Denied Claim Count: {}", claim_queue.max_denied_claim_count);
+        msg!("Max Denied Claim Count: {}", claim_stats.max_denied_claim_count);
         msg!("User Address: {}", submitter_address);
         
         Ok(())
@@ -1554,15 +1552,15 @@ pub mod m_4_a_protocol
         //Can't max deny claim if insurance company record was created
         require!(claim.is_insurance_company_record_created == false, InvalidOperationError::RecordAlreadyCreated);
 
-        let claim_queue = &mut ctx.accounts.claim_queue; 
+        let claim_stats = &mut ctx.accounts.claim_stats; 
         let submitter = &mut ctx.accounts.submitter;
         let patient = &mut ctx.accounts.patient;
-        claim_queue.max_denied_claim_count += 1;
+        claim_stats.max_denied_claim_count += 1;
         submitter.max_denied_claim_count += 1;
         patient.max_denied_claim_count += 1;
         admin_processor.max_denied_claim_count += 1;
      
-        claim_queue.current_claim_queue_count -= 1;
+        claim_stats.current_claim_queue_count -= 1;
 
         if claim.status == Status::Processing as u8
         {
@@ -1577,7 +1575,7 @@ pub mod m_4_a_protocol
         }
 
         msg!("New Max In Progress Claim Denial");
-        msg!("Max Denied Claim Count: {}", claim_queue.max_denied_claim_count);
+        msg!("Max Denied Claim Count: {}", claim_stats.max_denied_claim_count);
         msg!("User Address: {}", submitter_address);
         
         Ok(())
@@ -1607,8 +1605,8 @@ pub mod m_4_a_protocol
         //Denial note string must not be longer than 140 characters
         require!(denial_reason.len() <= MAX_NOTE_LENGTH, InvalidLengthError::NoteTooLong);
 
-        let claim_queue = &mut ctx.accounts.claim_queue; 
-        claim_queue.current_claim_queue_count -= 1;
+        let claim_stats = &mut ctx.accounts.claim_stats; 
+        claim_stats.current_claim_queue_count -= 1;
 
         let patient = &mut ctx.accounts.patient;
         let submitter = &mut ctx.accounts.submitter;
@@ -1644,11 +1642,12 @@ pub mod m_4_a_protocol
         
         let patient_record = &mut ctx.accounts.patient_record;
         patient.record_count += 1;
+        patient_record.submitter_address = claim.submitter_address;
+        patient_record.patient_index = claim.patient_index;
         patient_record.record_id = patient.record_count as u32;
         patient_record.claim_id = claim.id as u32;
         patient_record.status = Status::Denied as u8;
         patient_record.patient_record_only = true;
-        patient_record.submitter_address = claim.submitter_address;
         patient_record.processor_address = ctx.accounts.signer.key();
         patient_record.processor_count_index = processor.processed_claim_count;
         patient_record.denial_reason = denial_reason.clone();
@@ -1666,7 +1665,6 @@ pub mod m_4_a_protocol
         submitter.denied_claim_count += 1;
         patient.denied_claim_count += 1;
 
-        processor.created_patient_record_count += 1;
         processor.denied_claim_count += 1;
         processor.processed_claim_count += 1;
         processor.is_processing_claim = false;
@@ -1705,7 +1703,7 @@ pub mod m_4_a_protocol
         //Denial note string must not be longer than 140 characters
         require!(denial_reason.len() <= MAX_NOTE_LENGTH, InvalidLengthError::NoteTooLong);
 
-        let claim_queue = &mut ctx.accounts.claim_queue; 
+        let claim_stats = &mut ctx.accounts.claim_stats; 
         let processed_claim_stats = &mut ctx.accounts.processed_claim_stats;
         let submitter = &mut ctx.accounts.submitter;
         let patient = &mut ctx.accounts.patient;
@@ -1715,7 +1713,7 @@ pub mod m_4_a_protocol
 
         processed_claim_stats.processed_claim_count += 1;
         processed_claim_stats.denied_claim_count += 1;
-        claim_queue.current_claim_queue_count -= 1;
+        claim_stats.current_claim_queue_count -= 1;
         submitter.denied_claim_count += 1;
         patient.denied_claim_count += 1;
         hospital.denied_claim_count += 1;
@@ -1862,7 +1860,7 @@ pub mod m_4_a_protocol
         //Prevent Rat Fuckery
         require!(processed_claim.is_insurance_company_record_created == false, InvalidOperationError::NoRatFuckeryAllowed);
 
-        //Denital note string must not be longer than 140 characters
+        //Denial note string must not be longer than 140 characters
         require!(denial_reason.len() <= MAX_NOTE_LENGTH, InvalidLengthError::NoteTooLong);
 
         let processed_claim_stats = &mut ctx.accounts.processed_claim_stats;
@@ -1885,7 +1883,7 @@ pub mod m_4_a_protocol
         processed_claim.processed_time = time_stamp;
         
         msg!("An Appeal With Only A Patient Record Has Been Denied");
-        msg!("Denital Reason {}", denial_reason);
+        msg!("Denial Reason {}", denial_reason);
         msg!("Submitted Appeals Count {}", processed_claim_stats.denied_appeal_count);
 
         Ok(())
@@ -2014,7 +2012,7 @@ pub mod m_4_a_protocol
         processed_claim.processed_time = time_stamp;
         
         msg!("An Appeal With Only All Records Has Been Denied");
-        msg!("Denital Reason {}", denial_reason);
+        msg!("Denial Reason {}", denial_reason);
         msg!("Submitted Appeals Count {}", processed_claim_stats.denied_appeal_count);
 
         Ok(())
@@ -2076,6 +2074,9 @@ pub mod m_4_a_protocol
 
         let hospital_record = &mut ctx.accounts.hospital_record;
         hospital.record_count += 1;
+        hospital_record.country_index = processed_claim.country_index;
+        hospital_record.state_index = processed_claim.state_index;
+        hospital_record.hospital_index = processed_claim.hospital_index as u32;
         hospital_record.record_id = hospital.record_count;
         hospital_record.claim_id = processed_claim.claim_id;
         hospital_record.status = Status::Approved as u8;
@@ -2092,6 +2093,7 @@ pub mod m_4_a_protocol
         
         let insurance_company_record = &mut ctx.accounts.insurance_company_record;
         insurance_company.record_count += 1;
+        insurance_company_record.insurance_company_index = processed_claim.insurance_company_index as u16;
         insurance_company_record.record_id = insurance_company.record_count;
         insurance_company_record.claim_id = processed_claim.claim_id;
         insurance_company_record.status = Status::Approved as u8;
@@ -2193,16 +2195,14 @@ pub mod m_4_a_protocol
         //Only the CEO can call this function
         require_keys_eq!(ctx.accounts.signer.key(), ceo.address.key(), AuthorizationError::NotCEO);
 
-        let processed_claim_stats = &mut ctx.accounts.processed_claim_stats;
+        let unfinished_claim_stats = &mut ctx.accounts.unfinished_claim_stats;
         let processed_claim = &mut ctx.accounts.processed_claim;
-        let patient = &mut ctx.accounts.patient;
         let hospital = &mut ctx.accounts.hospital;
         let insurance_company = &mut ctx.accounts.insurance_company;
         let time_stamp = Clock::get()?.unix_timestamp as u64;
 
         //An edit count is kept to help stream line the table listeners on the front end
-        patient.edited_record_count += 1;
-        processed_claim_stats.edited_processed_claim_count += 1;
+        unfinished_claim_stats.edit_processed_claim_and_patient_record_count += 1;
 
         //Update Processed Claim
         processed_claim.hospital_index = hospital_index as i32;
@@ -2257,9 +2257,6 @@ pub mod m_4_a_protocol
         let time_stamp = Clock::get()?.unix_timestamp as u64;
 
         //An edit count is kept to help stream line the table listeners on the front end
-        patient.edited_record_count += 1;
-        hospital.edited_record_count += 1;
-        insurance_company.edited_record_count += 1;
         processed_claim_stats.edited_processed_claim_count += 1;
 
         //Update Previous Amounts If Amounts Were Already Approved
@@ -2402,15 +2399,15 @@ pub mod m_4_a_protocol
             let _ = claim_account.realloc(0, false);
         }
 
-        let claim_queue = &mut ctx.accounts.claim_queue;
+        let claim_stats = &mut ctx.accounts.claim_stats;
         let processor = &mut ctx.accounts.processor;
 
-        claim_queue.denial_hammer_dropped_count += 1;
-        claim_queue.current_claim_queue_count = claim_queue.current_claim_queue_count - ctx.remaining_accounts.len() as u32;
+        claim_stats.denial_hammer_dropped_count += 1;
+        claim_stats.current_claim_queue_count = claim_stats.current_claim_queue_count - ctx.remaining_accounts.len() as u32;
         processor.denial_hammer_dropped_count += 1;
         
         msg!("Denial Hammer Dropped");
-        msg!("Denial Hammer Use Count: {}", claim_queue.denial_hammer_dropped_count);
+        msg!("Denial Hammer Use Count: {}", claim_stats.denial_hammer_dropped_count);
         msg!("Number of Accounts Hammered: {}", ctx.remaining_accounts.len());
 
         Ok(())
@@ -2526,18 +2523,18 @@ pub struct InitializeProtocolStats<'info>
     #[account(
         init, 
         payer = signer,
-        seeds = [b"patientRecordsStats".as_ref()],
+        seeds = [b"claimStats".as_ref()],
         bump,
-        space = size_of::<PatientRecordStats>() + 8)]
-    pub patient_records_stats: Account<'info, PatientRecordStats>,
+        space = size_of::<ClaimStats>() + 8)]
+    pub claim_stats: Account<'info, ClaimStats>,
 
     #[account(
         init, 
         payer = signer,
-        seeds = [b"hospitalAndInsuranceRecordStats".as_ref()],
+        seeds = [b"claimAndProcessorStats".as_ref()],
         bump,
-        space = size_of::<HospitalAndInsuranceRecordStats>() + 8)]
-    pub hospital_and_insurance_record_stats: Account<'info, HospitalAndInsuranceRecordStats>,
+        space = size_of::<ClaimAndProcessorStats>() + 8)]
+    pub claim_and_processor_stats: Account<'info, ClaimAndProcessorStats>,
 
     #[account(
         init, 
@@ -2562,6 +2559,30 @@ pub struct InitializeProtocolStats<'info>
         bump,
         space = size_of::<InsuranceCompanyStats>() + 8)]
     pub insurance_company_stats: Account<'info, InsuranceCompanyStats>,
+
+    #[account(
+        init, 
+        payer = signer,
+        seeds = [b"patientRecordStats".as_ref()],
+        bump,
+        space = size_of::<PatientRecordStats>() + 8)]
+    pub patient_records_stats: Account<'info, PatientRecordStats>,
+
+    #[account(
+        init, 
+        payer = signer,
+        seeds = [b"hospitalAndInsuranceRecordStats".as_ref()],
+        bump,
+        space = size_of::<HospitalAndInsuranceRecordStats>() + 8)]
+    pub hospital_and_insurance_record_stats: Account<'info, HospitalAndInsuranceRecordStats>,
+
+    #[account(
+        init, 
+        payer = signer,
+        seeds = [b"unfinishedClaimStats".as_ref()],
+        bump,
+        space = size_of::<UnfinishedClaimStats>() + 8)]
+    pub unfinished_claim_stats: Account<'info, UnfinishedClaimStats>,
 
     #[account(mut)]
     pub signer: Signer<'info>,
@@ -2817,10 +2838,15 @@ pub struct SetProcessorAccountPrivilege<'info>
 pub struct SubmitClaimToQueue<'info> 
 {
     #[account(
-        mut,
         seeds = [b"claimQueue".as_ref()],
         bump)]
     pub claim_queue: Account<'info, ClaimQueue>,
+
+    #[account(
+        mut,
+        seeds = [b"claimStats".as_ref()],
+        bump)]
+    pub claim_stats: Account<'info, ClaimStats>,
 
     #[account(
         mut,
@@ -2880,9 +2906,9 @@ pub struct AssignClaimToProcessor<'info>
 {
     #[account(
         mut,
-        seeds = [b"processorStats".as_ref()],
+        seeds = [b"claimAndProcessorStats".as_ref()],
         bump)]
-    pub processor_stats: Account<'info, ProcessorStats>,
+    pub claim_and_processor_stats: Account<'info, ClaimAndProcessorStats>,
 
     #[account(
         mut,
@@ -2912,9 +2938,9 @@ pub struct ReassignClaimToNewProcessor<'info>
 
     #[account(
         mut,
-        seeds = [b"processorStats".as_ref()],
+        seeds = [b"claimAndProcessorStats".as_ref()],
         bump)]
-    pub processor_stats: Account<'info, ProcessorStats>,
+    pub claim_and_processor_stats: Account<'info, ClaimAndProcessorStats>,
 
     #[account(
         mut,
@@ -2950,9 +2976,9 @@ pub struct UnassignClaimFromProcessor<'info>
 
     #[account(
         mut,
-        seeds = [b"processorStats".as_ref()],
+        seeds = [b"claimAndProcessorStats".as_ref()],
         bump)]
-    pub processor_stats: Account<'info, ProcessorStats>,
+    pub claim_and_processor_stats: Account<'info, ClaimAndProcessorStats>,
 
     #[account(
         mut,
@@ -2977,7 +3003,7 @@ pub struct UnassignClaimFromProcessor<'info>
     pub system_program: Program<'info, System>
 }
 
-//In the event that the claim has already been denied some kind of way and the processor is stuck on a dead claim
+//For in the event that the claim has already been denied some kind of way and the processor is stuck on a dead claim (Denial Hammer most likely)
 #[derive(Accounts)]
 #[instruction(processor_address: Pubkey)]
 pub struct SetProcessorToNotProcessingClaimState<'info> 
@@ -2989,9 +3015,9 @@ pub struct SetProcessorToNotProcessingClaimState<'info>
 
     #[account(
         mut,
-        seeds = [b"processorStats".as_ref()],
+        seeds = [b"claimAndProcessorStats".as_ref()],
         bump)]
-    pub processor_stats: Account<'info, ProcessorStats>,
+    pub claim_and_processor_stats: Account<'info, ClaimAndProcessorStats>,
 
     #[account(
         mut, 
@@ -3179,9 +3205,9 @@ pub struct UpdateClaim<'info>
 {
     #[account(
         mut, 
-        seeds = [b"claimQueue".as_ref()],
+        seeds = [b"claimStats".as_ref()],
         bump)]
-    pub claim_queue: Account<'info, ClaimQueue>,
+    pub claim_stats: Account<'info, ClaimStats>,
 
     #[account(
         mut,
@@ -3206,7 +3232,7 @@ pub struct CreatePatientRecord<'info>
 {
     #[account(
         mut, 
-        seeds = [b"patientRecordsStats".as_ref()],
+        seeds = [b"patientRecordStats".as_ref()],
         bump)]
     pub patient_records_stats: Account<'info, PatientRecordStats>,
 
@@ -3312,9 +3338,9 @@ pub struct ApproveClaim<'info>
 {
     #[account(
         mut,
-        seeds = [b"claimQueue".as_ref()],
+        seeds = [b"claimStats".as_ref()],
         bump)]
-    pub claim_queue: Account<'info, ClaimQueue>,
+    pub claim_stats: Account<'info, ClaimStats>,
 
     #[account(
         mut, 
@@ -3396,9 +3422,9 @@ pub struct ApproveClaimWithEdits<'info>
 {
     #[account(
         mut,
-        seeds = [b"claimQueue".as_ref()],
+        seeds = [b"claimStats".as_ref()],
         bump)]
-    pub claim_queue: Account<'info, ClaimQueue>,
+    pub claim_stats: Account<'info, ClaimStats>,
 
     #[account(
         mut, 
@@ -3480,13 +3506,13 @@ pub struct CreatePatientRecordAndDenyClaim<'info>
 {
     #[account(
         mut,
-        seeds = [b"claimQueue".as_ref()],
+        seeds = [b"claimStats".as_ref()],
         bump)]
-    pub claim_queue: Account<'info, ClaimQueue>,
+    pub claim_stats: Account<'info, ClaimStats>,
 
     #[account(
         mut, 
-        seeds = [b"patientRecordsStats".as_ref()],
+        seeds = [b"patientRecordStats".as_ref()],
         bump)]
     pub patient_records_stats: Account<'info, PatientRecordStats>,
 
@@ -3553,9 +3579,9 @@ pub struct MaxDenyPendingClaim<'info>
 
     #[account(
         mut,
-        seeds = [b"claimQueue".as_ref()],
+        seeds = [b"claimStats".as_ref()],
         bump)]
-    pub claim_queue: Account<'info, ClaimQueue>,
+    pub claim_stats: Account<'info, ClaimStats>,
 
     #[account(
         mut, 
@@ -3598,9 +3624,9 @@ pub struct MaxDenyInProgressClaim<'info>
 
     #[account(
         mut,
-        seeds = [b"claimQueue".as_ref()],
+        seeds = [b"claimStats".as_ref()],
         bump)]
-    pub claim_queue: Account<'info, ClaimQueue>,
+    pub claim_stats: Account<'info, ClaimStats>,
 
     #[account(
         mut, 
@@ -3644,9 +3670,9 @@ pub struct DenyClaimWithAllRecords<'info>
 {
     #[account(
         mut,
-        seeds = [b"claimQueue".as_ref()],
+        seeds = [b"claimStats".as_ref()],
         bump)]
-    pub claim_queue: Account<'info, ClaimQueue>,
+    pub claim_stats: Account<'info, ClaimStats>,
 
     #[account(
         mut, 
@@ -4183,15 +4209,9 @@ pub struct EditProcessedClaimAndPatientRecord<'info>
 
     #[account(
         mut, 
-        seeds = [b"processedClaimStats".as_ref()],
+        seeds = [b"unfinishedClaimStats".as_ref()],
         bump)]
-    pub processed_claim_stats: Account<'info, ProcessedClaimStats>,
-
-    #[account(
-        mut, 
-        seeds = [b"patient".as_ref(), processed_claim.submitter_address.key().as_ref(), processed_claim.patient_index.to_le_bytes().as_ref()],
-        bump)]
-    pub patient: Account<'info, PatientAccount>,
+    pub unfinished_claim_stats: Account<'info, UnfinishedClaimStats>,
 
     #[account(
         mut, 
@@ -4386,9 +4406,9 @@ pub struct DropDenialHammer<'info>
 
     #[account(
         mut,
-        seeds = [b"claimQueue".as_ref()],
+        seeds = [b"claimStats".as_ref()],
         bump)]
-    pub claim_queue: Account<'info, ClaimQueue>,
+    pub claim_stats: Account<'info, ClaimStats>,
 
     #[account(
         mut, 
@@ -4430,13 +4450,25 @@ pub struct M4AProtocol
 
 #[account]
 pub struct ClaimQueue
-{   pub submitted_claim_count: u64,
-    pub current_claim_queue_count: u32,
+{  
     pub queue_size_limit: u32,
-    pub enabled: bool,
+    pub enabled: bool
+}
+
+#[account]
+pub struct ClaimStats
+{   
+    pub submitted_claim_count: u64,
+    pub current_claim_queue_count: u32,
     pub edited_claim_count: u64,
     pub max_denied_claim_count: u64,
     pub denial_hammer_dropped_count: u64
+}
+
+#[account]
+pub struct ClaimAndProcessorStats
+{   
+    pub set_or_unset_processor_on_claim_count: u64
 }
 
 #[account]
@@ -4477,20 +4509,19 @@ pub struct ProcessorStats
     pub processor_account_total: u64,
     pub processor_active_account_total: u64,
     pub processor_super_admin_account_total: u64,
-    pub set_or_unset_processor_on_claim_count: u64,  //Helps listners to update tables
     pub edited_processor_count: u32
 }
 
 #[account]
 pub struct PatientRecordStats
 {
-    pub created_patient_record_count: u64 //Helps listners to update tables
+    pub created_patient_record_count: u64
 }
 
 #[account]
 pub struct HospitalAndInsuranceRecordStats
 {
-    pub created_hospital_and_insurance_company_records_count: u64 //Helps listners to update tables
+    pub created_hospital_and_insurance_company_records_count: u64
 }
 
 #[account]
@@ -4505,6 +4536,12 @@ pub struct ProcessedClaimStats
     pub denied_appeal_count: u64,
     pub revoked_approval_count: u64,
     pub edited_processed_claim_count: u64
+}
+
+#[account]
+pub struct UnfinishedClaimStats
+{
+    pub edit_processed_claim_and_patient_record_count: u64
 }
 
 #[account]
@@ -4542,7 +4579,6 @@ pub struct PatientAccount
     pub patient_first_name: String,
     pub patient_last_name: String,
     pub record_count: u32,
-    pub edited_record_count: u32, //Helps listners to update records
     pub submitted_claim_count: u32,
     pub approved_claim_amount: u64,
     pub approved_claim_count: u32,
@@ -4563,11 +4599,8 @@ pub struct ProcessorAccount
     pub is_super_admin: bool,
     pub is_processing_claim: bool,
     pub submitter_address_of_claim_being_processed: Pubkey,
-    pub created_patient_record_count: u64,
     pub created_hospital_count: u64,
-    pub created_hospital_record_count: u64,
     pub created_insurance_company_count: u16,
-    pub created_insurance_company_record_count: u32,
     pub processed_claim_count: u64,
     pub approved_claim_amount: u64,
     pub approved_claim_count: u64,
@@ -4651,13 +4684,14 @@ pub struct ProcessedClaim
 #[account]
 pub struct PatientRecord
 {
+    pub submitter_address: Pubkey,
+    pub patient_index: u8,
     pub record_id: u32,
     pub claim_id: u32,
     pub status: u8,
     pub patient_record_only: bool,
     pub denial_reason: String,
     pub appeal_reason: String,
-    pub submitter_address: Pubkey,
     pub processor_address: Pubkey,
     pub processor_count_index: u64,
     pub country_index: u16,
@@ -4690,7 +4724,6 @@ pub struct Hospital
     pub hospital_phone_number: u128,
     pub note: String,
     pub record_count: u64,
-    pub edited_record_count: u32, //Helps listners to update records
     pub approved_claim_amount: u64,
     pub approved_claim_count: u64,
     pub denied_claim_count: u64,
@@ -4703,6 +4736,9 @@ pub struct Hospital
 #[account]
 pub struct HospitalRecord
 {
+    pub country_index: u16,
+    pub state_index: u32,
+    pub hospital_index: u32,
     pub record_id: u64,
     pub claim_id: u64,
     pub status: u8,
@@ -4712,8 +4748,6 @@ pub struct HospitalRecord
     pub patient_index: u8,
     pub processor_address: Pubkey,
     pub processor_count_index: u64,
-    pub country_index: u16,
-    pub state_index: u32,
     pub insurance_company_index: u16,
     pub hospital_bill_invoice_number: String,
     pub claim_amount: u64,
@@ -4732,7 +4766,6 @@ pub struct InsuranceCompany
     pub insurance_company_name: String,
     pub note: String,
     pub record_count: u64,
-    pub edited_record_count: u32, //Helps listners to update records
     pub approved_claim_amount: u64,
     pub approved_claim_count: u64,
     pub denied_claim_count: u64,
@@ -4745,6 +4778,7 @@ pub struct InsuranceCompany
 #[account]
 pub struct InsuranceCompanyRecord
 {
+    pub insurance_company_index: u16,
     pub record_id: u64,
     pub claim_id: u64,
     pub status: u8,
