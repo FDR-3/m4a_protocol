@@ -1,7 +1,8 @@
 import * as anchor from "@coral-xyz/anchor"
-import { Program } from "@coral-xyz/anchor"
-import { M4AProtocol } from "../target/types/m_4_a_protocol"
-import { utf8 } from "@coral-xyz/anchor/dist/cjs/utils/bytes"
+import BN from "bn.js"
+import { Program} from "@coral-xyz/anchor"
+import type { M4AProtocol } from "../target/types/m_4_a_protocol.ts"
+import { utf8 } from "@coral-xyz/anchor/dist/cjs/utils/bytes/index.js"
 import { assert } from "chai"
 import { PublicKey, Keypair, Transaction } from "@solana/web3.js"
 import * as fs from 'fs'
@@ -32,10 +33,10 @@ describe("M4A_Protocol", () => {
   const hospitalAddress = "Lorem ipsum dolor sit amet, consectetuer adipiscing elit. Aenean commodo ligula eget dolor. Aenean m"
   const hospitalCity= "Lorem ipsum dolor sit amet, consectetuer"
   const hospitalZipCode = 77777
-  const hospitalPhoneNumber = new anchor.BN(9007199254740991)//3.4028236692093846346337460743177e+38//    
+  const hospitalPhoneNumber = new BN(9007199254740991)//3.4028236692093846346337460743177e+38//    
   const hospitalBillInvoiceNumber = "Lorem ipsum dolor si"  
   const note144Characters = "Lorem ipsum dolor sit amet, consectetuer adipiscing elit. Aenean commodo ligula eget dolor. Aenean massa. Cum sociis natoque penatibus et magnis"
-  const claimAmount = new anchor.BN(10000)
+  const claimAmount = new BN(10000)
   const ailment = "Lorem ipsum dolor sit amet, consectetuer adip"
   const insuranceCompanyIndex = 0
   const insuranceCompanyName = "😂LMAO I don't have insurance😂"
@@ -43,7 +44,7 @@ describe("M4A_Protocol", () => {
   let firstCustomerWallet = anchor.web3.Keypair.generate()
 
   //Load the keypair from config file
-  const keypairPath = '/home/fdr1/.config/solana/id.json';
+  const keypairPath = '/home/xavier/.config/solana/id.json';
   const keypairData = JSON.parse(fs.readFileSync(keypairPath, 'utf8'));
   const testingWalletKeypair = Keypair.fromSecretKey(Uint8Array.from(keypairData))
 
@@ -802,10 +803,10 @@ describe("M4A_Protocol", () => {
     const hospitalAddressEdited  = "Hos Address Edited"
     const hospitalCityEdited = "Hos City Edited"
     const hospitalZipCodeEdited = 47474
-    const hospitalPhoneNumberEdited = new anchor.BN(7777774444)  
+    const hospitalPhoneNumberEdited = new BN(7777774444)  
     const hospitalBillInvoiceNumberEdited = "#efg"  
     const claimNoteEdited = "Edited Claim Note"
-    const claimAmountEdited = new anchor.BN(4712357)
+    const claimAmountEdited = new BN(4712357)
     const ailmentEdited = "Foot Surgery Edited"
 
     await program.methods.createPatientRecord(firstCustomerWallet.publicKey).rpc()
@@ -897,7 +898,7 @@ describe("M4A_Protocol", () => {
       const appealReason = "Testing Appeal"
       const processor = await program.account.processorAccount.fetch(getProcessorPDA(program.provider.publicKey))
 
-      await program.methods.appealDeniedClaimWithOnlyPatientRecord(program.provider.publicKey, processor.processedClaimCount.sub(new anchor.BN(1)), usdcMint.publicKey, appealReason)
+      await program.methods.appealDeniedClaimWithOnlyPatientRecord(program.provider.publicKey, processor.processedClaimCount.sub(new BN(1)), usdcMint.publicKey, appealReason)
       .accounts({signer: newWallet.publicKey})
       .signers([newWallet])
       .rpc()
@@ -907,7 +908,7 @@ describe("M4A_Protocol", () => {
       console.log("Approved Claim Count: ", processedClaimStats.approvedClaimCount.toNumber())
       console.log("Undenied Claim Count: ", processedClaimStats.undeniedClaimCount.toNumber())
       
-      await program.methods.undenyClaimAndCreateHospitalAndInsuranceCompanyRecords(program.provider.publicKey, processor.processedClaimCount.sub(new anchor.BN(1))).rpc()
+      await program.methods.undenyClaimAndCreateHospitalAndInsuranceCompanyRecords(program.provider.publicKey, processor.processedClaimCount.sub(new BN(1))).rpc()
 
       processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
       console.log("Processed Claim Count: ", processedClaimStats.processedClaimCount.toNumber())
@@ -990,7 +991,7 @@ describe("M4A_Protocol", () => {
       const appealReason = "Testing Appeal"
       const processor = await program.account.processorAccount.fetch(getProcessorPDA(program.provider.publicKey))
 
-      await program.methods.appealDeniedClaimWithAllRecords(program.provider.publicKey, processor.processedClaimCount.sub(new anchor.BN(1)), usdcMint.publicKey, appealReason)
+      await program.methods.appealDeniedClaimWithAllRecords(program.provider.publicKey, processor.processedClaimCount.sub(new BN(1)), usdcMint.publicKey, appealReason)
       .accounts({signer: newWallet.publicKey})
       .signers([newWallet])
       .rpc()
@@ -1000,7 +1001,7 @@ describe("M4A_Protocol", () => {
       console.log("Approved Claim Count: ", processedClaimStats.approvedClaimCount.toNumber())
       console.log("Undenied Claim Count: ", processedClaimStats.undeniedClaimCount.toNumber())
 
-      await program.methods.undenyClaimWithAllRecords(program.provider.publicKey, processor.processedClaimCount.sub(new anchor.BN(1))).rpc()
+      await program.methods.undenyClaimWithAllRecords(program.provider.publicKey, processor.processedClaimCount.sub(new BN(1))).rpc()
 
       processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
       console.log("Processed Claim Count: ", processedClaimStats.processedClaimCount.toNumber())
@@ -1076,7 +1077,7 @@ describe("M4A_Protocol", () => {
       const appealReason = "Testing Appeal"
       const processor = await program.account.processorAccount.fetch(getProcessorPDA(program.provider.publicKey))
 
-      await program.methods.appealDeniedClaimWithOnlyPatientRecord(program.provider.publicKey, processor.processedClaimCount.sub(new anchor.BN(1)), usdcMint.publicKey, appealReason)
+      await program.methods.appealDeniedClaimWithOnlyPatientRecord(program.provider.publicKey, processor.processedClaimCount.sub(new BN(1)), usdcMint.publicKey, appealReason)
       .accounts({signer: newWallet.publicKey})
       .signers([newWallet])
       .rpc()
@@ -1086,7 +1087,7 @@ describe("M4A_Protocol", () => {
       console.log("Denied Appeal Count: ", processedClaimStats.deniedAppealCount.toNumber())
 
       const denyAppealReason = "Testing Denying Appeal"
-      await program.methods.denyAppealedClaimWithOnlyPatientRecord(program.provider.publicKey, processor.processedClaimCount.sub(new anchor.BN(1)), denyAppealReason).rpc()
+      await program.methods.denyAppealedClaimWithOnlyPatientRecord(program.provider.publicKey, processor.processedClaimCount.sub(new BN(1)), denyAppealReason).rpc()
 
       processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
       console.log("Processed Claim Count: ", processedClaimStats.processedClaimCount.toNumber())
@@ -1164,7 +1165,7 @@ describe("M4A_Protocol", () => {
       const appealReason = "Testing Appeal"
       const processor = await program.account.processorAccount.fetch(getProcessorPDA(program.provider.publicKey))
 
-      await program.methods.appealDeniedClaimWithAllRecords(program.provider.publicKey, processor.processedClaimCount.sub(new anchor.BN(1)), usdcMint.publicKey, appealReason)
+      await program.methods.appealDeniedClaimWithAllRecords(program.provider.publicKey, processor.processedClaimCount.sub(new BN(1)), usdcMint.publicKey, appealReason)
       .accounts({signer: newWallet.publicKey})
       .signers([newWallet])
       .rpc()
@@ -1173,7 +1174,7 @@ describe("M4A_Protocol", () => {
       console.log("Denied Appeal Count: ", processedClaimStats.deniedAppealCount.toNumber())
 
       const denyAppealReason = "Testing Denying Appeal"
-      await program.methods.denyAppealedClaimWithAllRecords(program.provider.publicKey, processor.processedClaimCount.sub(new anchor.BN(1)), denyAppealReason).rpc()
+      await program.methods.denyAppealedClaimWithAllRecords(program.provider.publicKey, processor.processedClaimCount.sub(new BN(1)), denyAppealReason).rpc()
 
       processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
       console.log("Denied Appeal Count: ", processedClaimStats.deniedAppealCount.toNumber())
@@ -1246,14 +1247,14 @@ describe("M4A_Protocol", () => {
 
       const newHospitalBillInvoiceNumber = "abc123"
       const newClaimNote = "NEW PROCESSED CLAIM NOTE" 
-      const newClaimAmount = new anchor.BN(77777) //Convert to Fixed Point
+      const newClaimAmount = new BN(77777) //Convert to Fixed Point
       const newAilment = "NEW AILMENT"
  
       const processor = await program.account.processorAccount.fetch(getProcessorPDA(program.provider.publicKey))
 
       await program.methods.editProcessedClaimAndPatientRecord(
         program.provider.publicKey, 
-        processor.processedClaimCount.sub(new anchor.BN(1)),
+        processor.processedClaimCount.sub(new BN(1)),
         hospitalIndex,
         insuranceCompanyIndex,
         newHospitalBillInvoiceNumber,
@@ -1335,14 +1336,14 @@ describe("M4A_Protocol", () => {
       
       const newHospitalBillInvoiceNumber = "abc123"
       const newClaimNote = "NEW PROCESSED CLAIM NOTE" 
-      const newClaimAmount = new anchor.BN(77777) //Convert to Fixed Point
+      const newClaimAmount = new BN(77777) //Convert to Fixed Point
       const newAilment = "NEW AILMENT"
   
       const processor = await program.account.processorAccount.fetch(getProcessorPDA(program.provider.publicKey))
 
       await program.methods.editProcessedClaimAndAllRecords(
         program.provider.publicKey, 
-        processor.processedClaimCount.sub(new anchor.BN(1)), 
+        processor.processedClaimCount.sub(new BN(1)), 
         newHospitalBillInvoiceNumber,
         newClaimNote,
         newClaimAmount,
@@ -1425,7 +1426,7 @@ describe("M4A_Protocol", () => {
 
       const denialReason = "Testing Approval Revoke"
       const processor = await program.account.processorAccount.fetch(getProcessorPDA(program.provider.publicKey))
-      await program.methods.revokeApproval(program.provider.publicKey, processor.processedClaimCount.sub(new anchor.BN(1)), denialReason).rpc()
+      await program.methods.revokeApproval(program.provider.publicKey, processor.processedClaimCount.sub(new BN(1)), denialReason).rpc()
 
       processedClaimStats = await program.account.processedClaimStats.fetch(getProcessedClaimStatsPDA())
       console.log("Processed Claim Count: ", processedClaimStats.processedClaimCount.toNumber())
@@ -1557,7 +1558,7 @@ describe("M4A_Protocol", () => {
       [
         new TextEncoder().encode("patient"),
         submitterAddress.toBuffer(),
-        new anchor.BN(patientIndex).toBuffer('le', 1)
+        new BN(patientIndex).toBuffer('le', 1)
       ],
       program.programId
     )
