@@ -44,7 +44,7 @@ describe("M4A_Protocol", () => {
   let firstCustomerWallet = anchor.web3.Keypair.generate()
 
   //Load the keypair from config file
-  const keypairPath = '/home/xavier/.config/solana/id.json';
+  const keypairPath = '/home/fdr-3/.config/solana/id.json';
   const keypairData = JSON.parse(fs.readFileSync(keypairPath, 'utf8'));
   const testingWalletKeypair = Keypair.fromSecretKey(Uint8Array.from(keypairData))
 
