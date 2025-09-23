@@ -13,7 +13,7 @@ security_txt!
     project_url: "https://m4a.io",
     contacts: "email fdr3@m4a.io",
     preferred_languages: "en",
-    source_code: "https://github.com/FDR-3?tab=repositories",
+    source_code: "https://github.com/FDR-3/m4a_protocol",
     policy: "If you find a bug, email me and say something please D:"
 }
 

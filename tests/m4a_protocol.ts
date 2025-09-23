@@ -9,7 +9,7 @@ import * as fs from 'fs'
 import { Token, ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@solana/spl-token"
 
 describe("M4A_Protocol", () => {
-  // Configure the client to use the local cluster.
+  //Configure the client to use the local cluster.
   anchor.setProvider(anchor.AnchorProvider.env())
 
   const program = anchor.workspace.M4AProtocol as Program<M4AProtocol>
@@ -40,6 +40,7 @@ describe("M4A_Protocol", () => {
   const ailment = "Lorem ipsum dolor sit amet, consectetuer adip"
   const insuranceCompanyIndex = 0
   const insuranceCompanyName = "😂LMAO I don't have insurance😂"
+  const notCEOErrorMsg = "Only the CEO can call this function"
 
   let firstCustomerWallet = anchor.web3.Keypair.generate()
 
@@ -105,6 +106,25 @@ describe("M4A_Protocol", () => {
     
     var ceoAccount = await program.account.m4AProtocolCeo.fetch(getM4AProtocolCEOAccountPDA())
     assert(ceoAccount.address.toBase58() == program.provider.publicKey.toBase58())
+  })
+
+  it("Verifies That Only CEO Can Pass On Account", async () => 
+  {
+    var errorMessage = ""
+
+    try
+    {
+      await program.methods.passOnM4AProtocolCeo(program.provider.publicKey).
+      accounts({signer: firstCustomerWallet.publicKey})
+      .signers([firstCustomerWallet])
+      .rpc()
+    }
+    catch(error)
+    {
+      errorMessage = error.error.errorMessage
+    }
+
+    assert(errorMessage == notCEOErrorMsg)
   })
 
   it("Adds a Fee Token Entry Then Removes It", async () => 
