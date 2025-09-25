@@ -178,7 +178,7 @@ fn apply_fee<'info>(
     let cpi_accounts = token::Transfer {
         from: from_account,
         to: to_account.clone(),
-        authority: signer,
+        authority: signer
     };
     let cpi_program = token_program;
     let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);
