@@ -10,6 +10,8 @@ name = "m4a_protocol"
 
 [features]
 default = []
+dev = []
+local = []
 custom-heap = []
 anchor-debug = []
 custom-panic = []
