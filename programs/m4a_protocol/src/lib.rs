@@ -1,10 +1,9 @@
 use anchor_lang::prelude::*;
-use anchor_lang::solana_program::system_program;
 use anchor_spl::token::{self, Token, TokenAccount};
 use core::mem::size_of;
 use solana_security_txt::security_txt;
 
-declare_id!("EmKwXWsa1GeEBqYmmUMADWrVRy5W64FSV9yb2EkeKZ4t");
+declare_id!("6YbJ6EYgCFLmBXYtjdQYigGdvxfdobZvAV9KMAdgrqEi");
 
 #[cfg(not(feature = "no-entrypoint"))] //Ensure it's not included when compiled as a library
 security_txt!
@@ -2402,8 +2401,8 @@ pub mod m_4_a_protocol
                 dest_starting_lamports.checked_add(claim_account.lamports()).unwrap();
             **claim_account.lamports.borrow_mut() = 0;
             
-            claim_account.assign(&system_program::ID);
-            let _ = claim_account.realloc(0, false);
+            claim_account.assign(&SYSTEM_PROGRAM_ADDRESS);
+            let _ = claim_account.resize(0);
         }
 
         let claim_stats = &mut ctx.accounts.claim_stats;
@@ -2862,6 +2861,7 @@ pub struct SubmitClaimToQueue<'info>
     pub submitter: Account<'info, SubmitterAccount>,
 
     #[account(
+        mut,
         seeds = [b"patient".as_ref(), signer.key().as_ref(), patient_index.to_le_bytes().as_ref()],
         bump)]
     pub patient: Account<'info, PatientAccount>,
