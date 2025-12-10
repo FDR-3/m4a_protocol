@@ -3,7 +3,7 @@ use anchor_spl::token::{self, Token, TokenAccount};
 use core::mem::size_of;
 use solana_security_txt::security_txt;
 
-declare_id!("6YbJ6EYgCFLmBXYtjdQYigGdvxfdobZvAV9KMAdgrqEi");
+declare_id!("6eu3x8PR19s83TNbquQPXNbPSbYeTKkmU64VnGout4bG");
 
 #[cfg(not(feature = "no-entrypoint"))] //Ensure it's not included when compiled as a library
 security_txt!
@@ -1922,6 +1922,7 @@ pub mod m_4_a_protocol
         require!(appeal_reason.len() <= MAX_NOTE_LENGTH, InvalidLengthError::NoteTooLong);
 
         let processed_claim_stats = &mut ctx.accounts.processed_claim_stats;
+        let submitter = &mut ctx.accounts.submitter;
         let patient = &mut ctx.accounts.patient;
         let patient_record = &mut ctx.accounts.patient_record;
         let hospital = &mut ctx.accounts.hospital;
@@ -1932,6 +1933,7 @@ pub mod m_4_a_protocol
         processed_claim_stats.submitted_appeal_count += 1;
         processed_claim.status = Status::Appealed as u8;
         processed_claim.appeal_reason = appeal_reason.clone();
+        submitter.submitted_appeal_count += 1;
         patient.submitted_appeal_count += 1;
         patient_record.status = Status::Appealed as u8;
         patient_record.appeal_reason = appeal_reason.clone();

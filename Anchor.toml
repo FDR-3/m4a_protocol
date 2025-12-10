@@ -5,7 +5,7 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-m4a_protocol = "6YbJ6EYgCFLmBXYtjdQYigGdvxfdobZvAV9KMAdgrqEi"
+m4a_protocol = "6eu3x8PR19s83TNbquQPXNbPSbYeTKkmU64VnGout4bG"
 
 [registry]
 url = "https://api.apr.dev"
