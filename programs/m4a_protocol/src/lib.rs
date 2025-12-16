@@ -31,7 +31,8 @@ const INITIAL_TREASURER_ADDRESS: Pubkey = pubkey!("9BRgCdmwyP5wGVTvKAUDjSwucpqGn
 #[cfg(feature = "local")] 
 const INITIAL_TREASURER_ADDRESS: Pubkey = pubkey!("DSLn1ofuSWLbakQWhPUenSBHegwkBBTUwx8ZY4Wfoxm");
 
-const FEE_4CENTS: f64 = 0.04;
+//Stable Coin Fee
+const FEE_4CENTS: u64 = 4;
 
 //Patients need atleast 57 extra bytes of space to pass with full load
 const PATIENT_EXTRA_SIZE: usize = 64;
@@ -171,14 +172,14 @@ pub enum InvalidType
     HospitalTypeInvalid
 }
 
-// Helper function to handle the USDC fee transfer
+//Helper function to handle the Stable Coin fee transfer
 fn apply_fee<'info>(
     from_account: AccountInfo<'info>,
     to_account: AccountInfo<'info>,
     signer: AccountInfo<'info>,
     token_program: AccountInfo<'info>,
     treasurer: Account<M4AProtocolTreasurer>,
-    amount: f64,
+    amount: u64,
     decimal_amount: u8
 ) -> Result<()> {
     let cpi_accounts = token::Transfer {
@@ -190,13 +191,13 @@ fn apply_fee<'info>(
     let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);
 
     let base_int :u64 = 10;
-    let conversion_number = base_int.pow(decimal_amount as u32) as f64;
-    let fixed_pointed_notation_amount = (amount * conversion_number) as u64;
+    let conversion_number = base_int.pow(decimal_amount as u32 - 2); //Convert fixed point cents to native token decimal amount
+    let fixed_pointed_notation_amount = amount * conversion_number;
 
     //Transfer fee to Treasurer Wallet
     token::transfer(cpi_ctx, fixed_pointed_notation_amount)?;
     
-    msg!("Successfully transferred ${:.2} as fee to: {}", amount, treasurer.address);
+    msg!("Successfully transferred ${:.2} as fee to: {}", (amount/100) as f32, treasurer.address);
 
     Ok(())
 }
