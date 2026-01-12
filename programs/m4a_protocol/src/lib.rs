@@ -191,7 +191,7 @@ fn apply_fee<'info>(
     let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);
 
     let base_int :u64 = 10;
-    let conversion_number = base_int.pow(decimal_amount as u32 - 2); //Convert fixed point cents to native token decimal amount
+    let conversion_number = base_int.pow(decimal_amount as u32 - 2); //Convert fixed point cents to native token decimal amount. All Fee amounts are hard coded with 2 decimals of precision.
     let fixed_pointed_notation_amount = amount * conversion_number;
 
     //Transfer fee to Treasurer Wallet
